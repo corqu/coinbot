@@ -1,0 +1,5 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+pydantic-settings==2.10.1
+pybit==5.11.0
+kafka-python==2.2.15
