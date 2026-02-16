@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: backend
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+jwt:
+  secret: c3ByaW5nYm9vdC1qd3Qtc2VjcmV0LWtleS1mb3ItYXV0aGVudGljYXRpb24tcHVycG9zZXM=
+  access-token-validity-in-seconds: 3600
+  refresh-token-validity-in-seconds: 604800
