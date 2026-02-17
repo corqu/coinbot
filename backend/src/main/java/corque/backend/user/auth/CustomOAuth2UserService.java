@@ -41,19 +41,25 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         if (user != null) {
             if (provider.equalsIgnoreCase(user.getProvider())) {
                 return new PrincipalDetails(user.getId(), email, user.getRole(), attributes);
-            } else {
-                log.warn("OAuth2 로그인 시도: 이메일 {}는 이미 {}로 가입되어 있음", email, user.getProvider());
-                throw new OAuth2AuthenticationException("이미 다른 소셜 계정으로 가입된 이메일입니다");
             }
-        } else {
-            user = User.builder()
-                    .email(email)
-                    .provider(provider)
-                    .providerId(providerId)
-                    .nickname(nickname).build();
 
-            user = userRepository.save(user);
+            if (user.getProvider() == null || user.getProvider().isBlank()) {
+                String message = "ACCOUNT_LINK_REQUIRED|" + email + "|" + provider + "|" + providerId;
+                throw new OAuth2AuthenticationException(message);
+            }
+
+            log.warn("OAuth2 login blocked: email {} is already linked with {}", email, user.getProvider());
+            throw new OAuth2AuthenticationException("ALREADY_LINKED_WITH_OTHER_PROVIDER");
         }
+
+        user = User.builder()
+                .email(email)
+                .provider(provider)
+                .providerId(providerId)
+                .nickname(nickname)
+                .build();
+
+        user = userRepository.save(user);
         return new PrincipalDetails(user.getId(), email, user.getRole(), attributes);
     }
 }

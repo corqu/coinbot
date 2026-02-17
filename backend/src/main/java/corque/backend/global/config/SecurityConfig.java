@@ -2,6 +2,7 @@ package corque.backend.global.config;
 
 import corque.backend.global.config.jwt.JwtAuthenticationFilter;
 import corque.backend.user.auth.CustomOAuth2UserService;
+import corque.backend.user.auth.OAuth2AuthenticationFailureHandler;
 import corque.backend.user.auth.OAuth2AuthenticationSuccessHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -23,6 +24,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final CustomOAuth2UserService customOAuth2UserService;
+    private final OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
     private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
     private final AuthenticationConfiguration authenticationConfiguration;
 
@@ -46,6 +48,7 @@ public class SecurityConfig {
                 )
                 .oauth2Login(oauth2 -> oauth2
                         .successHandler(oAuth2AuthenticationSuccessHandler)
+                        .failureHandler(oAuth2AuthenticationFailureHandler)
                         .userInfoEndpoint(userInfo -> userInfo
                                 .userService(customOAuth2UserService)
                         )

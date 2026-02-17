@@ -10,8 +10,6 @@ public class GoogleUserInfo implements OAuth2UserInfo {
 
     public GoogleUserInfo(Map<String, Object> attributes) { this.attributes = attributes; }
 
-    private String nickname;
-
     @Override
     public String getProviderId() {
         return attributes.get("sub").toString();
@@ -24,11 +22,10 @@ public class GoogleUserInfo implements OAuth2UserInfo {
 
     @Override
     public String getNickname() {
-        if(attributes.get("name")==null || attributes.get("name").toString().isEmpty()){
-            nickname = "User_" + NanoIdUtil.generateNanoId(8);
-        } else {
-            nickname = attributes.get("name").toString();
+        Object name = attributes.get("name");
+        if (name == null || name.toString().isBlank()) {
+            return "User_" + NanoIdUtil.generateNanoId(8);
         }
-        return nickname;
+        return name.toString();
     }
 }

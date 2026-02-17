@@ -2,13 +2,16 @@ package corque.backend.global.config.jwt;
 
 import corque.backend.global.exception.ApiException;
 import corque.backend.global.exception.ErrorCode;
+import corque.backend.user.auth.PrincipalDetails;
+import corque.backend.user.domain.User;
+import corque.backend.user.repo.UserRepository;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.SignatureAlgorithm;
-import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.UnsupportedJwtException;
+import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.SignatureException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,6 +31,8 @@ import java.util.stream.Collectors;
 @Component
 @RequiredArgsConstructor
 public class JwtTokenProvider {
+
+    private final UserRepository userRepository;
 
     @Value("${jwt.secret}")
     private String secretKeyString;
@@ -77,6 +82,9 @@ public class JwtTokenProvider {
 
     public Authentication getAuthentication(String token) {
         Claims claims = getClaims(token);
+        String email = claims.getSubject();
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ApiException(ErrorCode.USER_NOT_FOUND));
 
         Collection<? extends GrantedAuthority> authorities;
         if (claims.containsKey("roles")) {
@@ -84,10 +92,17 @@ public class JwtTokenProvider {
                     .map(SimpleGrantedAuthority::new)
                     .collect(Collectors.toList());
         } else {
-            authorities = Collections.emptyList(); // roles 클레임이 없는 경우 빈 권한 목록
+            authorities = Collections.singletonList(new SimpleGrantedAuthority(user.getRole().name()));
         }
 
-        return new UsernamePasswordAuthenticationToken(claims.getSubject(), "", authorities);
+        PrincipalDetails principalDetails = new PrincipalDetails(
+                user.getId(),
+                user.getEmail(),
+                user.getRole(),
+                Collections.emptyMap()
+        );
+
+        return new UsernamePasswordAuthenticationToken(principalDetails, "", authorities);
     }
 
     public Claims getClaims(String token) {
@@ -111,7 +126,7 @@ public class JwtTokenProvider {
         } catch (ExpiredJwtException e) {
             throw new ApiException(ErrorCode.EXPIRED_TOKEN);
         } catch (Exception e) {
-            throw new ApiException(ErrorCode.INTERNAL_SERVER_ERROR); // 또는 적절한 다른 에러코드
+            throw new ApiException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
     }
 

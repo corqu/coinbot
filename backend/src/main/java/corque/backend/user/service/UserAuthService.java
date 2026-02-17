@@ -3,14 +3,16 @@ package corque.backend.user.service;
 import corque.backend.global.config.jwt.JwtTokenProvider;
 import corque.backend.global.exception.ApiException;
 import corque.backend.global.exception.ErrorCode;
+import corque.backend.user.auth.PrincipalDetails;
 import corque.backend.user.domain.RefreshToken;
 import corque.backend.user.domain.User;
-import corque.backend.user.repo.RefreshTokenRepository;
-import corque.backend.user.repo.UserRepository;
+import corque.backend.user.dto.LinkSocialAccountRequest;
 import corque.backend.user.dto.SignInRequest;
 import corque.backend.user.dto.SignUpRequest;
 import corque.backend.user.dto.TokenInfo;
 import corque.backend.user.dto.UserResponse;
+import corque.backend.user.repo.RefreshTokenRepository;
+import corque.backend.user.repo.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -19,6 +21,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Collections;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -71,24 +76,51 @@ public class UserAuthService {
     }
 
     @Transactional
+    public TokenInfo linkSocialAccount(LinkSocialAccountRequest request) {
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new ApiException(ErrorCode.USER_NOT_FOUND));
+
+        if (user.getProvider() != null && !user.getProvider().isBlank()) {
+            throw new ApiException(ErrorCode.INVALID_INPUT_VALUE);
+        }
+
+        if (user.getPassword() == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new ApiException(ErrorCode.LOGIN_FAILED);
+        }
+
+        String provider = request.getProvider().toLowerCase(Locale.ROOT);
+        user.linkProvider(provider, request.getProviderId());
+
+        PrincipalDetails principalDetails = new PrincipalDetails(
+                user.getId(),
+                user.getEmail(),
+                user.getRole(),
+                Collections.emptyMap()
+        );
+
+        Authentication authentication = new UsernamePasswordAuthenticationToken(
+                principalDetails,
+                "",
+                principalDetails.getAuthorities()
+        );
+
+        return issueTokens(user, authentication);
+    }
+
+    @Transactional
     public TokenInfo refresh(String refreshTokenValue) {
-        // 1. Refresh Token 유효성 검사
         if (!jwtTokenProvider.validateToken(refreshTokenValue)) {
             throw new ApiException(ErrorCode.INVALID_TOKEN);
         }
 
-        // 2. DB에서 Refresh Token 조회
         RefreshToken refreshToken = refreshTokenRepository.findByToken(refreshTokenValue)
                 .orElseThrow(() -> new ApiException(ErrorCode.INVALID_TOKEN));
 
-        // 3. Refresh Token에서 얻은 정보로 Authentication 객체 생성
         Authentication authentication = jwtTokenProvider.getAuthentication(refreshTokenValue);
 
-        // 4. 새로운 Access Token 및 Refresh Token 발급 (Rotate)
         String newAccessToken = jwtTokenProvider.createAccessToken(authentication);
         String newRefreshTokenValue = jwtTokenProvider.createRefreshToken(authentication);
 
-        // 5. DB의 Refresh Token 업데이트
         refreshToken.updateToken(newRefreshTokenValue);
 
         return TokenInfo.builder()
@@ -105,5 +137,22 @@ public class UserAuthService {
 
         refreshTokenRepository.findByUser(user)
                 .ifPresent(refreshTokenRepository::delete);
+    }
+
+    private TokenInfo issueTokens(User user, Authentication authentication) {
+        String accessToken = jwtTokenProvider.createAccessToken(authentication);
+        String refreshTokenValue = jwtTokenProvider.createRefreshToken(authentication);
+
+        refreshTokenRepository.findByUser(user)
+                .ifPresentOrElse(
+                        refreshToken -> refreshToken.updateToken(refreshTokenValue),
+                        () -> refreshTokenRepository.save(new RefreshToken(user, refreshTokenValue))
+                );
+
+        return TokenInfo.builder()
+                .grantType("Bearer")
+                .accessToken(accessToken)
+                .refreshToken(refreshTokenValue)
+                .build();
     }
 }

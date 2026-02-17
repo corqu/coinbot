@@ -1,6 +1,5 @@
 package corque.backend.user.dto;
 
-import corque.backend.user.domain.User;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
@@ -8,7 +7,7 @@ import lombok.NoArgsConstructor;
 
 @Getter
 @NoArgsConstructor
-public class SignUpRequest {
+public class LinkSocialAccountRequest {
 
     @NotBlank
     @Email
@@ -18,13 +17,8 @@ public class SignUpRequest {
     private String password;
 
     @NotBlank
-    private String nickname;
+    private String provider;
 
-    public User toEntity(String encodedPassword) {
-        return User.builder()
-                .email(email)
-                .password(encodedPassword)
-                .nickname(nickname)
-                .build();
-    }
+    @NotBlank
+    private String providerId;
 }
