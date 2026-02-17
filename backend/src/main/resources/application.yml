@@ -7,6 +7,10 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
 
+  jpa:
+    hibernate:
+      ddl-auto: update
+
 jwt:
   secret: c3ByaW5nYm9vdC1qd3Qtc2VjcmV0LWtleS1mb3ItYXV0aGVudGljYXRpb24tcHVycG9zZXM=
   access-token-validity-in-seconds: 3600
