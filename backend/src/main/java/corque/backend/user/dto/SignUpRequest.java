@@ -26,7 +26,6 @@ public class SignUpRequest {
                 .email(email)
                 .password(encodedPassword)
                 .nickname(nickname)
-                .role(UserRole.USER)
                 .build();
     }
 }

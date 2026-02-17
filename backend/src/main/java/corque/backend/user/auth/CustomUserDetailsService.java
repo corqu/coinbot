@@ -1,4 +1,4 @@
-package corque.backend.user.service;
+package corque.backend.user.auth;
 
 import corque.backend.global.exception.ApiException;
 import corque.backend.global.exception.ErrorCode;
@@ -23,17 +23,8 @@ public class CustomUserDetailsService implements UserDetailsService {
     @Override
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        return userRepository.findByEmail(username)
-                .map(this::createUserDetails)
+        User user = userRepository.findByEmail(username)
                 .orElseThrow(() -> new ApiException(ErrorCode.USER_NOT_FOUND));
-    }
-
-    private UserDetails createUserDetails(User user) {
-        SimpleGrantedAuthority grantedAuthority = new SimpleGrantedAuthority(user.getRole().toString());
-        return new org.springframework.security.core.userdetails.User(
-                user.getEmail(),
-                user.getPassword(),
-                Collections.singleton(grantedAuthority)
-        );
+        return new PrincipalDetails(user.getId(), user.getEmail(),user.getPassword(), user.getRole());
     }
 }

@@ -21,7 +21,7 @@ public class User {
     @Column(nullable = false, unique = true, length = 100)
     private String email;
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private String password;
 
     @Column(nullable = false, length = 30)
@@ -29,17 +29,22 @@ public class User {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private UserRole role;
+    private UserRole role = UserRole.USER;
 
     @CreationTimestamp
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
+    private String provider;
+
+    private String providerId;
+
     @Builder
-    public User(String email, String password, String nickname, UserRole role) {
+    public User(String email, String password, String nickname, String provider, String providerId) {
         this.email = email;
         this.password = password;
         this.nickname = nickname;
-        this.role = role;
+        this.provider = provider;
+        this.providerId = providerId;
     }
 }
