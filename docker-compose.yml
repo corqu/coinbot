@@ -1,0 +1,27 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: autotrading-db
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./db/data:/var/lib/mysql
+      - ./db/init:/docker-entrypoint-initdb.d # 초기 SQL 필요 시
+    restart: on-failure
+    env_file:
+      - .env.dev
+    environment:
+      MYSQL_DATABASE: autotrading
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD} # 일반 유저 비번
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Seoul
+
+  # kafka:
+  #   image: confluentinc/cp-kafka:7.6.1
+  #   container_name: autotrading-kafka
+  #   restart: on-failure
+  #   ports:
+  #     - "9092:9092"
+  #   env_file:
+  #     - .env.dev
