@@ -6,7 +6,9 @@ import corque.backend.global.exception.ErrorCode;
 import corque.backend.user.domain.RefreshToken;
 import corque.backend.user.domain.User;
 import corque.backend.user.dto.LinkSocialAccountRequest;
+import corque.backend.user.dto.SignUpRequest;
 import corque.backend.user.dto.TokenInfo;
+import corque.backend.user.dto.UserResponse;
 import corque.backend.user.repo.RefreshTokenRepository;
 import corque.backend.user.repo.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +24,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class UserAuthServiceTest {
@@ -36,6 +39,8 @@ class UserAuthServiceTest {
     private AuthenticationManager authenticationManager;
     @Mock
     private JwtTokenProvider jwtTokenProvider;
+    @Mock
+    private EmailVerificationService emailVerificationService;
 
     private UserAuthService userAuthService;
 
@@ -47,7 +52,8 @@ class UserAuthServiceTest {
                 refreshTokenRepository,
                 passwordEncoder,
                 authenticationManager,
-                jwtTokenProvider
+                jwtTokenProvider,
+                emailVerificationService
         );
     }
 
@@ -102,5 +108,45 @@ class UserAuthServiceTest {
                 .isInstanceOf(ApiException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.LOGIN_FAILED);
+    }
+
+    @Test
+    void signUp_throwsWhenEmailNotVerified() {
+        SignUpRequest request = new SignUpRequest();
+        ReflectionTestUtils.setField(request, "email", "new@test.com");
+        ReflectionTestUtils.setField(request, "password", "pw");
+        ReflectionTestUtils.setField(request, "nickname", "nick");
+
+        when(userRepository.findByEmail("new@test.com")).thenReturn(Optional.empty());
+        when(emailVerificationService.isVerified("new@test.com")).thenReturn(false);
+
+        assertThatThrownBy(() -> userAuthService.signUp(request))
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_INPUT_VALUE);
+    }
+
+    @Test
+    void signUp_clearsVerificationOnSuccess() {
+        SignUpRequest request = new SignUpRequest();
+        ReflectionTestUtils.setField(request, "email", "new@test.com");
+        ReflectionTestUtils.setField(request, "password", "pw");
+        ReflectionTestUtils.setField(request, "nickname", "nick");
+
+        User saved = User.builder()
+                .email("new@test.com")
+                .password("encoded")
+                .nickname("nick")
+                .build();
+
+        when(userRepository.findByEmail("new@test.com")).thenReturn(Optional.empty());
+        when(emailVerificationService.isVerified("new@test.com")).thenReturn(true);
+        when(passwordEncoder.encode("pw")).thenReturn("encoded");
+        when(userRepository.save(any(User.class))).thenReturn(saved);
+
+        UserResponse response = userAuthService.signUp(request);
+
+        assertThat(response.getEmail()).isEqualTo("new@test.com");
+        verify(emailVerificationService).clearVerification("new@test.com");
     }
 }

@@ -4,11 +4,17 @@ import corque.backend.global.config.jwt.JwtTokenProvider;
 import corque.backend.global.dto.ApiResponse;
 import corque.backend.global.exception.ApiException;
 import corque.backend.global.exception.ErrorCode;
+import corque.backend.user.dto.EmailVerificationConfirmRequest;
+import corque.backend.user.dto.EmailVerificationSendRequest;
 import corque.backend.user.dto.LinkSocialAccountRequest;
+import corque.backend.user.dto.PasswordResetConfirmRequest;
+import corque.backend.user.dto.PasswordResetSendRequest;
 import corque.backend.user.dto.SignInRequest;
 import corque.backend.user.dto.SignUpRequest;
 import corque.backend.user.dto.TokenInfo;
 import corque.backend.user.dto.UserResponse;
+import corque.backend.user.service.EmailVerificationService;
+import corque.backend.user.service.PasswordResetService;
 import corque.backend.user.service.UserAuthService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,6 +37,32 @@ public class AuthController {
 
     private final UserAuthService userAuthService;
     private final JwtTokenProvider jwtTokenProvider;
+    private final EmailVerificationService emailVerificationService;
+    private final PasswordResetService passwordResetService;
+
+    @PostMapping("/email/send")
+    public ResponseEntity<ApiResponse<Void>> sendVerificationEmail(@Valid @RequestBody EmailVerificationSendRequest request) {
+        emailVerificationService.sendCode(request.getEmail());
+        return ResponseEntity.ok(ApiResponse.success("Verification email sent."));
+    }
+
+    @PostMapping("/email/verify")
+    public ResponseEntity<ApiResponse<Void>> verifyEmailCode(@Valid @RequestBody EmailVerificationConfirmRequest request) {
+        emailVerificationService.verifyCode(request.getEmail(), request.getCode());
+        return ResponseEntity.ok(ApiResponse.success("Email verification completed."));
+    }
+
+    @PostMapping("/password/reset/send")
+    public ResponseEntity<ApiResponse<Void>> sendPasswordResetCode(@Valid @RequestBody PasswordResetSendRequest request) {
+        passwordResetService.sendResetCode(request.getEmail());
+        return ResponseEntity.ok(ApiResponse.success("Password reset email sent."));
+    }
+
+    @PostMapping("/password/reset/confirm")
+    public ResponseEntity<ApiResponse<Void>> confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmRequest request) {
+        passwordResetService.resetPassword(request.getEmail(), request.getCode(), request.getNewPassword());
+        return ResponseEntity.ok(ApiResponse.success("Password reset completed."));
+    }
 
     @PostMapping("/sign-up")
     public ResponseEntity<ApiResponse<UserResponse>> signUp(@Valid @RequestBody SignUpRequest request) {

@@ -52,4 +52,8 @@ public class User {
         this.provider = provider;
         this.providerId = providerId;
     }
+
+    public void changePassword(String password) {
+        this.password = password;
+    }
 }

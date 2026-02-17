@@ -34,6 +34,7 @@ public class UserAuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
+    private final EmailVerificationService emailVerificationService;
 
 
     @Transactional
@@ -41,8 +42,12 @@ public class UserAuthService {
         if (userRepository.findByEmail(request.getEmail()).isPresent()) {
             throw new ApiException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
+        if (!emailVerificationService.isVerified(request.getEmail())) {
+            throw new ApiException(ErrorCode.INVALID_INPUT_VALUE);
+        }
 
         User user = userRepository.save(request.toEntity(passwordEncoder.encode(request.getPassword())));
+        emailVerificationService.clearVerification(request.getEmail());
         return new UserResponse(user);
     }
 
