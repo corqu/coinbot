@@ -1,6 +1,6 @@
 package corque.backend.global.config;
 
-import corque.backend.global.config.jwt.JwtAuthenticationFilter;
+import corque.backend.global.security.jwt.JwtAuthenticationFilter;
 import corque.backend.user.auth.CustomOAuth2UserService;
 import corque.backend.user.auth.OAuth2AuthenticationFailureHandler;
 import corque.backend.user.auth.OAuth2AuthenticationSuccessHandler;

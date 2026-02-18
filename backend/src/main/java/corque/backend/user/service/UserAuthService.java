@@ -1,6 +1,6 @@
 package corque.backend.user.service;
 
-import corque.backend.global.config.jwt.JwtTokenProvider;
+import corque.backend.global.security.jwt.JwtTokenProvider;
 import corque.backend.global.exception.ApiException;
 import corque.backend.global.exception.ErrorCode;
 import corque.backend.user.auth.PrincipalDetails;

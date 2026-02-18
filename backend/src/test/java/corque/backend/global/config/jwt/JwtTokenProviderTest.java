@@ -1,5 +1,6 @@
 package corque.backend.global.config.jwt;
 
+import corque.backend.global.security.jwt.JwtTokenProvider;
 import corque.backend.user.auth.PrincipalDetails;
 import corque.backend.user.domain.User;
 import corque.backend.user.repo.UserRepository;

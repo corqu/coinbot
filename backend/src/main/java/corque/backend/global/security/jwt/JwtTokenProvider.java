@@ -1,4 +1,4 @@
-package corque.backend.global.config.jwt;
+package corque.backend.global.security.jwt;
 
 import corque.backend.global.exception.ApiException;
 import corque.backend.global.exception.ErrorCode;
