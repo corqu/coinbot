@@ -40,6 +40,7 @@ public class StrategyService {
     private final StrategyRepository strategyRepository;
     private final StrategyGroupRepository strategyGroupRepository;
     private final StrategyGroupItemRepository strategyGroupItemRepository;
+    private final StrategyAssignmentRedisSyncService strategyAssignmentRedisSyncService;
     private final PythonBacktestClient pythonBacktestClient;
     private final ObjectMapper objectMapper;
 
@@ -92,6 +93,7 @@ public class StrategyService {
                 .map(itemRequest -> toStrategyGroupItem(group, itemRequest))
                 .toList();
         strategyGroupItemRepository.saveAll(items);
+        strategyAssignmentRedisSyncService.syncGroupAfterCommit(group.getId());
         return toGroupResponse(group);
     }
 
@@ -104,6 +106,7 @@ public class StrategyService {
         } else {
             group.deactivate();
         }
+        strategyAssignmentRedisSyncService.syncGroupAfterCommit(group.getId());
         return toGroupResponse(group);
     }
 

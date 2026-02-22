@@ -3,10 +3,12 @@ package corque.backend.strategy.signal;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import corque.backend.strategy.domain.Strategy;
+import corque.backend.strategy.domain.StrategyGroup;
 import corque.backend.strategy.domain.StrategyGroupItem;
 import corque.backend.strategy.order.BybitOrderClient;
 import corque.backend.strategy.order.BybitOrderResult;
 import corque.backend.strategy.repo.StrategyGroupItemRepository;
+import corque.backend.strategy.repo.StrategyGroupRepository;
 import corque.backend.strategy.repo.StrategyRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SignalExecutionService {
 
     private final StrategyRepository strategyRepository;
+    private final StrategyGroupRepository strategyGroupRepository;
     private final StrategyGroupItemRepository strategyGroupItemRepository;
     private final BybitOrderClient bybitOrderClient;
     private final ObjectMapper objectMapper;
@@ -39,6 +42,10 @@ public class SignalExecutionService {
             return;
         }
         if (!"BUY".equalsIgnoreCase(message.getSignal()) && !"SELL".equalsIgnoreCase(message.getSignal())) {
+            return;
+        }
+        if (message.getGroupId() != null) {
+            executeGroupSignal(message);
             return;
         }
 
@@ -81,6 +88,59 @@ public class SignalExecutionService {
             } catch (Exception e) {
                 log.error("Order failed. signalId={}, itemId={}", message.getSignalId(), item.getId(), e);
             }
+        }
+    }
+
+    private void executeGroupSignal(TradeSignalMessage message) {
+        StrategyGroup group = strategyGroupRepository.findById(message.getGroupId()).orElse(null);
+        if (group == null || !Boolean.TRUE.equals(group.getIsActive())) {
+            log.info("No active strategy group found for groupId={}", message.getGroupId());
+            return;
+        }
+
+        var items = strategyGroupItemRepository.findByStrategyGroupIdOrderBySortOrderAscIdAsc(group.getId())
+                .stream()
+                .filter(item -> Boolean.TRUE.equals(item.getEnabled()))
+                .toList();
+        if (items.isEmpty()) {
+            log.info("No enabled items for groupId={}", message.getGroupId());
+            return;
+        }
+
+        StrategyGroupItem chosenItem = null;
+        double qty = 0.0;
+        for (StrategyGroupItem item : items) {
+            Map<String, Object> params = parseParams(item.getParamsJson());
+            if (!matchesFilter(params, message)) {
+                continue;
+            }
+            double resolvedQty = resolveQty(params);
+            if (resolvedQty > 0) {
+                chosenItem = item;
+                qty = resolvedQty;
+                break;
+            }
+        }
+
+        if (chosenItem == null || qty <= 0) {
+            log.warn("Skip group order due to missing qty/filter mismatch. groupId={}", group.getId());
+            return;
+        }
+
+        String side = "BUY".equalsIgnoreCase(message.getSignal()) ? "Buy" : "Sell";
+        try {
+            Double orderPrice = resolveOrderPrice(message);
+            BybitOrderResult result = bybitOrderClient.placeOrder(message.getSymbol(), side, qty, orderPrice);
+            log.info("Group order sent. signalId={}, groupId={}, itemId={}, orderType={}, price={}, retCode={}, retMsg={}",
+                    message.getSignalId(),
+                    group.getId(),
+                    chosenItem.getId(),
+                    orderPrice != null ? "Limit" : "Market",
+                    orderPrice,
+                    result.getRetCode(),
+                    result.getRetMsg());
+        } catch (Exception e) {
+            log.error("Group order failed. signalId={}, groupId={}", message.getSignalId(), group.getId(), e);
         }
     }
 

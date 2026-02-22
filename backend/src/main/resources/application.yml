@@ -10,6 +10,11 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
+    defer-datasource-initialization: true
+
+  sql:
+    init:
+      mode: always
 
   data:
     redis:
@@ -65,6 +70,10 @@ jwt:
 trading:
   python-server-base-url: ${PYTHON_SERVER_BASE_URL:http://localhost:8001}
   signal-topic: ${KAFKA_SIGNAL_TOPIC:trade.signals.v1}
+  redis:
+    strategy-group-hash-key: ${TRADING_REDIS_GROUP_HASH_KEY:trading:strategy-groups}
+    active-group-set-key: ${TRADING_REDIS_ACTIVE_GROUP_SET_KEY:trading:strategy-groups:active}
+    event-channel: ${TRADING_REDIS_EVENT_CHANNEL:trading:strategy-groups:events}
   bybit:
     base-url: ${BYBIT_BASE_URL:https://api-testnet.bybit.com}
     category: ${BYBIT_CATEGORY:linear}

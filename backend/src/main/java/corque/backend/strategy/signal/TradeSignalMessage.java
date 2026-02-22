@@ -11,6 +11,12 @@ import lombok.Setter;
 public class TradeSignalMessage {
     private String type;
 
+    @JsonProperty("group_id")
+    private Long groupId;
+
+    @JsonProperty("user_id")
+    private Long userId;
+
     @JsonProperty("strategy_id")
     private String strategyId;
 
