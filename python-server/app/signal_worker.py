@@ -1,24 +1,17 @@
 import asyncio
+import importlib
+import inspect
 import logging
 import threading
-from dataclasses import dataclass
+from typing import Callable, Any
 
 from app.bybit_client import BybitService
 from app.config import settings
 from app.event_bus import event_bus
-from app.strategy.applied_startegy.ma_rsi_volume_strategy import generate_signal
+from app.strategy_group_store import strategy_group_store, StrategyGroupConfig, StrategyGroupItemConfig
 
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class StrategySpec:
-    strategy_id: str
-    short_window: int
-    long_window: int
-    trade_qty: float
-
 
 class SignalWorker:
     def __init__(self):
@@ -27,18 +20,12 @@ class SignalWorker:
         self._lock = threading.Lock()
         self._last_candle_ts: dict[tuple[str, str], int] = {}
         self._bars_cache: dict[tuple[str, str], list[dict]] = {}
-        self._strategies: list[StrategySpec] = [
-            StrategySpec(
-                strategy_id="ma_rsi_volume_v1",
-                short_window=settings.default_short_window,
-                long_window=settings.default_long_window,
-                trade_qty=settings.default_trade_qty,
-            )
-        ]
+        self._signal_function_cache: dict[str, Callable[..., str] | None] = {}
 
     def start(self) -> None:
         if self._task and not self._task.done():
             return
+        strategy_group_store.refresh_now()
         if settings.bybit_ws_enabled:
             self._start_ws()
             return
@@ -65,6 +52,7 @@ class SignalWorker:
             await asyncio.sleep(settings.market_poll_interval_sec)
 
     def _tick(self) -> None:
+        strategy_group_store.refresh_if_needed()
         symbols = [s.strip().upper() for s in settings.symbols.split(",") if s.strip()]
         intervals = [s.strip() for s in settings.intervals.split(",") if s.strip()]
         if not symbols or not intervals:
@@ -81,6 +69,7 @@ class SignalWorker:
                 self._process_symbol_interval(bybit, symbol, interval)
 
     def _start_ws(self) -> None:
+        strategy_group_store.refresh_if_needed()
         symbols = [s.strip().upper() for s in settings.symbols.split(",") if s.strip()]
         intervals = [s.strip() for s in settings.intervals.split(",") if s.strip()]
         if not symbols or not intervals:
@@ -91,11 +80,10 @@ class SignalWorker:
             api_secret=settings.bybit_api_secret or None,
             testnet=settings.bybit_testnet,
         )
-        max_window = max(spec.long_window for spec in self._strategies)
 
         for symbol in symbols:
             for interval in intervals:
-                bars = bybit.get_klines(symbol=symbol, interval=interval, limit=max(max_window + 5, 50))
+                bars = bybit.get_klines(symbol=symbol, interval=interval, limit=max(settings.signal_bars_limit, 50))
                 if len(bars) > 1:
                     bars = bars[:-1]
                 with self._lock:
@@ -155,9 +143,8 @@ class SignalWorker:
                     bars[-1] = bar
                 else:
                     bars.append(bar)
-                max_len = max(spec.long_window for spec in self._strategies) + 10
-                if len(bars) > max_len:
-                    self._bars_cache[key] = bars[-max_len:]
+                if len(bars) > settings.signal_bars_limit + 10:
+                    self._bars_cache[key] = bars[-(settings.signal_bars_limit + 10):]
 
             self._emit_signals(symbol, interval, bar["ts"], bar["close"])
 
@@ -168,25 +155,25 @@ class SignalWorker:
         if not bars:
             return
 
-        for spec in self._strategies:
-            signal = generate_signal(bars, spec.short_window, spec.long_window)
-            if signal == "HOLD":
+        for group in strategy_group_store.groups().values():
+            signal = self._evaluate_group_signal(group, bars, symbol, interval)
+            if signal not in {"BUY", "SELL"}:
                 continue
             payload = {
                 "type": "signal",
-                "strategy_id": spec.strategy_id,
+                "group_id": group.group_id,
+                "user_id": group.user_id,
                 "symbol": symbol,
                 "interval": interval,
                 "signal": signal,
                 "price": price,
                 "ts": candle_ts,
-                "signal_id": f"{spec.strategy_id}|{symbol}|{interval}|{candle_ts}",
+                "signal_id": f"group:{group.group_id}|{symbol}|{interval}|{candle_ts}",
             }
-            event_bus.publish(payload, key=f"{symbol}:{interval}")
+            event_bus.publish(payload, key=f"group:{group.group_id}:{symbol}:{interval}")
 
     def _process_symbol_interval(self, bybit: BybitService, symbol: str, interval: str) -> None:
-        max_window = max(spec.long_window for spec in self._strategies)
-        bars = bybit.get_klines(symbol=symbol, interval=interval, limit=max(max_window + 5, 50))
+        bars = bybit.get_klines(symbol=symbol, interval=interval, limit=max(settings.signal_bars_limit, 50))
         if not bars:
             return
 
@@ -201,6 +188,85 @@ class SignalWorker:
         closed_bars = bars[:-1]
         last_price = closed_bars[-1]["close"]
         self._emit_signals(symbol, interval, latest_candle_ts, last_price)
+
+    def _evaluate_group_signal(
+            self,
+            group: StrategyGroupConfig,
+            bars: list[dict],
+            symbol: str,
+            interval: str,
+    ) -> str:
+        all_signals: list[str] = []
+
+        for item in group.items:
+            if not self._matches_market(item.params, symbol, interval):
+                return "HOLD"
+
+            signal = self._evaluate_item_signal(item, bars)
+            if signal not in {"BUY", "SELL"}:
+                return "HOLD"
+            all_signals.append(signal)
+
+        if not all_signals:
+            return "HOLD"
+        first = all_signals[0]
+        if any(s != first for s in all_signals):
+            return "HOLD"
+        return first
+
+    def _evaluate_item_signal(self, item: StrategyGroupItemConfig, bars: list[dict]) -> str:
+        signal_func = self._load_signal_function(item.strategy_source)
+        if signal_func is None:
+            return "HOLD"
+
+        try:
+            signature = inspect.signature(signal_func)
+            kwargs: dict[str, Any] = {}
+            for name, param in signature.parameters.items():
+                if name == "bars":
+                    continue
+                if name in item.params:
+                    kwargs[name] = item.params[name]
+                    continue
+                if param.default is inspect._empty:
+                    return "HOLD"
+            result = signal_func(bars=bars, **kwargs)
+        except Exception:
+            logger.exception("Signal evaluation failed. strategySource=%s itemId=%s", item.strategy_source, item.item_id)
+            return "HOLD"
+
+        if isinstance(result, str):
+            upper = result.upper()
+            if upper in {"BUY", "SELL", "HOLD"}:
+                return upper
+        return "HOLD"
+
+    def _load_signal_function(self, strategy_source: str) -> Callable[..., str] | None:
+        if strategy_source in self._signal_function_cache:
+            return self._signal_function_cache[strategy_source]
+
+        try:
+            strategy_module = importlib.import_module(strategy_source)
+            signal_func = getattr(strategy_module, "generate_signal", None)
+            if not callable(signal_func):
+                logger.warning("generate_signal not found. strategySource=%s", strategy_source)
+                self._signal_function_cache[strategy_source] = None
+                return None
+            self._signal_function_cache[strategy_source] = signal_func
+            return signal_func
+        except Exception:
+            logger.exception("Failed to import strategy module. strategySource=%s", strategy_source)
+            self._signal_function_cache[strategy_source] = None
+            return None
+
+    def _matches_market(self, params: dict[str, Any], symbol: str, interval: str) -> bool:
+        param_symbol = params.get("symbol")
+        if isinstance(param_symbol, str) and param_symbol.strip() and param_symbol.upper() != symbol.upper():
+            return False
+        param_interval = params.get("interval")
+        if isinstance(param_interval, str) and param_interval.strip() and param_interval != interval:
+            return False
+        return True
 
 
 signal_worker = SignalWorker()
