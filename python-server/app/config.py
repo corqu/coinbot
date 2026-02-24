@@ -24,5 +24,16 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_signal_topic: str = "trade.signals.v1"
 
+    redis_enabled: bool = True
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_password: str = ""
+    redis_db: int = 0
+
+    trading_redis_group_hash_key: str = "trading:strategy-groups"
+    trading_redis_active_group_set_key: str = "trading:strategy-groups:active"
+    strategy_group_refresh_sec: int = 3
+    signal_bars_limit: int = 300
+
 
 settings = Settings()

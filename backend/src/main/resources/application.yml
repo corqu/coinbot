@@ -10,6 +10,11 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
+    defer-datasource-initialization: true
+
+  sql:
+    init:
+      mode: always
 
   data:
     redis:
@@ -41,7 +46,37 @@ spring:
               - email
               - profile
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:trade-executor-v1}
+      auto-offset-reset: ${KAFKA_AUTO_OFFSET_RESET:latest}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring:
+          json:
+            trusted:
+              packages: "corque.backend.strategy.signal"
+            value:
+              default:
+                type: corque.backend.strategy.signal.TradeSignalMessage
+
 jwt:
   secret: ${JWT_SECRET_KEY}
   access-token-validity-in-seconds: 3600
   refresh-token-validity-in-seconds: 604800
+
+trading:
+  python-server-base-url: ${PYTHON_SERVER_BASE_URL:http://localhost:8001}
+  signal-topic: ${KAFKA_SIGNAL_TOPIC:trade.signals.v1}
+  redis:
+    strategy-group-hash-key: ${TRADING_REDIS_GROUP_HASH_KEY:trading:strategy-groups}
+    active-group-set-key: ${TRADING_REDIS_ACTIVE_GROUP_SET_KEY:trading:strategy-groups:active}
+    event-channel: ${TRADING_REDIS_EVENT_CHANNEL:trading:strategy-groups:events}
+  bybit:
+    base-url: ${BYBIT_BASE_URL:https://api-testnet.bybit.com}
+    category: ${BYBIT_CATEGORY:linear}
+    api-key: ${BYBIT_API_KEY:}
+    api-secret: ${BYBIT_API_SECRET:}
+    recv-window: ${BYBIT_RECV_WINDOW:5000}

@@ -1,29 +1,36 @@
 from pydantic import BaseModel, Field
 
 
-class BacktestRequest(BaseModel):
-    strategy_id: str = "ma_rsi_volume_v1"
+class DynamicBacktestStrategyRequest(BaseModel):
+    strategyId: str
+    strategySource: str
+    params: dict = Field(default_factory=dict)
+
+
+class DynamicBacktestRequest(BaseModel):
     symbol: str = "BTCUSDT"
     interval: str = Field(default="15", pattern=r"^(1|3|5|15|30|60|120|240|360|720|D|W|M)$")
-    short_window: int = Field(default=9, ge=2, le=200)
-    long_window: int = Field(default=21, ge=3, le=400)
-    trade_qty: float = Field(default=0.001, gt=0)
-    bars: int = Field(default=500, ge=100, le=1000)
+    tradeQty: float = Field(default=0.001, gt=0)
+    bars: int = Field(default=500, ge=100, le=2000)
+    strategies: list[DynamicBacktestStrategyRequest] = Field(default_factory=list, min_length=1)
 
 
-class BacktestPoint(BaseModel):
-    ts: int
-    equity: float
+class DynamicBacktestStrategyResultResponse(BaseModel):
+    strategyId: str
+    totalTrades: int
+    winTrades: int
+    lossTrades: int
+    winRate: float
+    realizedPnl: float
 
 
-class BacktestResponse(BaseModel):
-    strategy_id: str
+class DynamicBacktestResponse(BaseModel):
     symbol: str
     interval: str
     bars: int
-    total_trades: int
-    win_trades: int
-    loss_trades: int
-    win_rate: float
-    realized_pnl: float
-    equity_curve: list[BacktestPoint]
+    totalTrades: int
+    winTrades: int
+    lossTrades: int
+    winRate: float
+    realizedPnl: float
+    items: list[DynamicBacktestStrategyResultResponse]
