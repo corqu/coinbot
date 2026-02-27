@@ -76,6 +76,13 @@ public class StrategyAssignmentRedisSyncService {
                     .filter(item -> Boolean.TRUE.equals(item.getEnabled()))
                     .toList();
 
+            boolean active = Boolean.TRUE.equals(group.getIsActive()) && !items.isEmpty();
+            if (!active) {
+                removeGroup(group.getId());
+                publishEvent("GROUP_REMOVED", group.getId(), false);
+                return;
+            }
+
             Map<String, Object> groupPayload = new HashMap<>();
             groupPayload.put("groupId", group.getId());
             groupPayload.put("userId", group.getUserId());
@@ -89,13 +96,7 @@ public class StrategyAssignmentRedisSyncService {
 
             String groupIdKey = String.valueOf(group.getId());
             redisTemplate.opsForHash().put(strategyGroupHashKey, groupIdKey, payload);
-
-            boolean active = Boolean.TRUE.equals(group.getIsActive()) && !items.isEmpty();
-            if (active) {
-                redisTemplate.opsForSet().add(activeGroupSetKey, groupIdKey);
-            } else {
-                redisTemplate.opsForSet().remove(activeGroupSetKey, groupIdKey);
-            }
+            redisTemplate.opsForSet().add(activeGroupSetKey, groupIdKey);
 
             publishEvent("GROUP_UPSERTED", group.getId(), active);
         } catch (Exception e) {

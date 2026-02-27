@@ -61,30 +61,23 @@ public class StrategyService {
     }
 
     @Transactional(readOnly = true)
-    public StrategyGroupResponse getStrategyGroup(Long strategyGroupId) {
-        StrategyGroup group = strategyGroupRepository.findById(strategyGroupId)
-                .orElseThrow(() -> new ApiException(ErrorCode.ENTITY_NOT_FOUND));
+    public StrategyGroupResponse getStrategyGroup(Long userId, Long strategyGroupId) {
+        StrategyGroup group = getOwnedGroup(userId, strategyGroupId);
         return toGroupResponse(group);
     }
 
     @Transactional
-    public StrategyGroupResponse saveStrategyGroup(StrategyGroupSaveRequest request) {
+    public StrategyGroupResponse saveStrategyGroup(Long userId, StrategyGroupSaveRequest request) {
         StrategyGroup group;
         if (request.getStrategyGroupId() == null) {
             group = strategyGroupRepository.save(StrategyGroup.builder()
-                    .userId(request.getUserId())
+                    .userId(userId)
                     .name(request.getName())
                     .description(request.getDescription())
                     .isActive(request.getIsActive())
                     .build());
         } else {
-            group = strategyGroupRepository.findById(request.getStrategyGroupId())
-                    .orElseThrow(() -> new ApiException(ErrorCode.ENTITY_NOT_FOUND));
-
-            if (!group.getUserId().equals(request.getUserId())) {
-                throw new ApiException(ErrorCode.INVALID_INPUT_VALUE);
-            }
-
+            group = getOwnedGroup(userId, request.getStrategyGroupId());
             group.updateInfo(request.getName(), request.getDescription(), request.getIsActive());
             strategyGroupItemRepository.deleteByStrategyGroupId(group.getId());
         }
@@ -98,9 +91,8 @@ public class StrategyService {
     }
 
     @Transactional
-    public StrategyGroupResponse updateGroupActive(Long strategyGroupId, Boolean isActive) {
-        StrategyGroup group = strategyGroupRepository.findById(strategyGroupId)
-                .orElseThrow(() -> new ApiException(ErrorCode.ENTITY_NOT_FOUND));
+    public StrategyGroupResponse updateGroupActive(Long userId, Long strategyGroupId, Boolean isActive) {
+        StrategyGroup group = getOwnedGroup(userId, strategyGroupId);
         if (Boolean.TRUE.equals(isActive)) {
             group.activate();
         } else {
@@ -111,9 +103,12 @@ public class StrategyService {
     }
 
     @Transactional(readOnly = true)
-    public StrategyGroupBacktestResponse runGroupBacktest(Long strategyGroupId, StrategyGroupBacktestRequest request) {
-        StrategyGroup group = strategyGroupRepository.findById(strategyGroupId)
-                .orElseThrow(() -> new ApiException(ErrorCode.ENTITY_NOT_FOUND));
+    public StrategyGroupBacktestResponse runGroupBacktest(
+            Long userId,
+            Long strategyGroupId,
+            StrategyGroupBacktestRequest request
+    ) {
+        StrategyGroup group = getOwnedGroup(userId, strategyGroupId);
 
         List<StrategyGroupItem> allEnabledItems = strategyGroupItemRepository
                 .findByStrategyGroupIdOrderBySortOrderAscIdAsc(group.getId())
@@ -164,6 +159,15 @@ public class StrategyService {
                 .realizedPnl(round6(realizedPnl))
                 .items(itemResults)
                 .build();
+    }
+
+    private StrategyGroup getOwnedGroup(Long userId, Long strategyGroupId) {
+        StrategyGroup group = strategyGroupRepository.findById(strategyGroupId)
+                .orElseThrow(() -> new ApiException(ErrorCode.ENTITY_NOT_FOUND));
+        if (!group.getUserId().equals(userId)) {
+            throw new ApiException(ErrorCode.HANDLE_ACCESS_DENIED);
+        }
+        return group;
     }
 
     private PythonBacktestRequest buildPythonBacktestRequest(
