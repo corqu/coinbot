@@ -1,4 +1,4 @@
-package corque.backend.strategy.signal;
+package corque.backend.signal.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;

@@ -1,4 +1,4 @@
-package corque.backend.strategy.order;
+package corque.backend.order.infra;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +37,14 @@ public class BybitOrderClient {
     @Value("${trading.bybit.recv-window:5000}")
     private String recvWindow;
 
-    public BybitOrderResult placeOrder(String symbol, String side, double qty, Double price) {
+    public BybitOrderResult placeOrder(
+            String symbol,
+            String side,
+            double qty,
+            Double price,
+            Double takeProfit,
+            Double stopLoss
+    ) {
         if (apiKey == null || apiKey.isBlank() || apiSecret == null || apiSecret.isBlank()) {
             throw new IllegalStateException("Bybit API credentials are not configured.");
         }
@@ -54,6 +61,12 @@ public class BybitOrderClient {
         } else {
             payload.put("orderType", "Market");
             payload.put("timeInForce", "IOC");
+        }
+        if (takeProfit != null && takeProfit > 0) {
+            payload.put("takeProfit", String.valueOf(takeProfit));
+        }
+        if (stopLoss != null && stopLoss > 0) {
+            payload.put("stopLoss", String.valueOf(stopLoss));
         }
 
         String body;
@@ -81,7 +94,7 @@ public class BybitOrderClient {
     }
 
     public BybitOrderResult placeMarketOrder(String symbol, String side, double qty) {
-        return placeOrder(symbol, side, qty, null);
+        return placeOrder(symbol, side, qty, null, null, null);
     }
 
     private String hmacSha256Hex(String secret, String payload) {

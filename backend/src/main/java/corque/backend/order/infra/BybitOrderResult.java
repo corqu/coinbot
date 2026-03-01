@@ -1,4 +1,4 @@
-package corque.backend.strategy.order;
+package corque.backend.order.infra;
 
 import lombok.Getter;
 import lombok.NoArgsConstructor;

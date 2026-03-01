@@ -17,9 +17,6 @@ public class StrategyGroupSaveRequest {
 
     private Long strategyGroupId;
 
-    @NotNull
-    private Long userId;
-
     @NotBlank
     private String name;
 

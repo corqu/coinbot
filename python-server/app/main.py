@@ -1,21 +1,25 @@
 from contextlib import asynccontextmanager
+import asyncio
 import importlib
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from app.bybit_client import BybitService
 from app.config import settings
+from app.market_stream import market_stream_service
 from app.schemas import DynamicBacktestRequest, DynamicBacktestResponse, DynamicBacktestStrategyResultResponse
 from app.signal_worker import signal_worker
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    market_stream_service.start(asyncio.get_running_loop())
     if settings.kafka_enabled:
         signal_worker.start()
     yield
     if settings.kafka_enabled:
         await signal_worker.stop()
+    await market_stream_service.stop()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -31,6 +35,23 @@ def health():
         "intervals": settings.intervals,
         "poll_interval_sec": settings.market_poll_interval_sec,
     }
+
+
+@app.websocket("/ws/market")
+async def ws_market(
+    websocket: WebSocket,
+    symbol: str = Query(default="BTCUSDT"),
+    interval: str = Query(default="15"),
+    limit: int = Query(default=200, ge=50, le=500),
+):
+    await websocket.accept()
+    normalized_symbol = symbol.upper()
+    await market_stream_service.register(websocket, normalized_symbol, interval, limit)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        market_stream_service.unregister(websocket, normalized_symbol, interval)
 
 
 @app.post("/backtest/dynamic", response_model=DynamicBacktestResponse)

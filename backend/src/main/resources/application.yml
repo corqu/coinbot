@@ -57,10 +57,10 @@ spring:
         spring:
           json:
             trusted:
-              packages: "corque.backend.strategy.signal"
+              packages: "corque.backend.signal.dto"
             value:
               default:
-                type: corque.backend.strategy.signal.TradeSignalMessage
+                type: corque.backend.signal.dto.TradeSignalMessage
 
 jwt:
   secret: ${JWT_SECRET_KEY}
