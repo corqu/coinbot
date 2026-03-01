@@ -83,10 +83,29 @@ public class SignalExecutionService {
             String side = "BUY".equalsIgnoreCase(message.getSignal()) ? "Buy" : "Sell";
             try {
                 Double orderPrice = resolveOrderPrice(message);
-                BybitOrderResult result = bybitOrderClient.placeOrder(message.getSymbol(), side, qty, orderPrice);
+                Double takeProfit = resolveTakeProfit(params);
+                Double stopLoss = resolveStopLoss(params);
+                BybitOrderResult result = bybitOrderClient.placeOrder(
+                        message.getSymbol(),
+                        side,
+                        qty,
+                        orderPrice,
+                        takeProfit,
+                        stopLoss
+                );
                 if (result == null || result.getRetCode() == null || result.getRetCode() != 0) {
                     failCount++;
-                    orderExecutionService.recordRejected(signalEventId, message, item, side, qty, orderPrice, result);
+                    orderExecutionService.recordRejected(
+                            signalEventId,
+                            message,
+                            item,
+                            side,
+                            qty,
+                            orderPrice,
+                            takeProfit,
+                            stopLoss,
+                            result
+                    );
                     log.warn("Order rejected. signalId={}, itemId={}, retCode={}, retMsg={}",
                             message.getSignalId(),
                             item.getId(),
@@ -94,7 +113,17 @@ public class SignalExecutionService {
                             result != null ? result.getRetMsg() : null);
                     continue;
                 }
-                orderExecutionService.recordSubmitted(signalEventId, message, item, side, qty, orderPrice, result);
+                orderExecutionService.recordSubmitted(
+                        signalEventId,
+                        message,
+                        item,
+                        side,
+                        qty,
+                        orderPrice,
+                        takeProfit,
+                        stopLoss,
+                        result
+                );
                 log.info("Order sent. signalId={}, itemId={}, orderType={}, price={}, retCode={}, retMsg={}",
                         message.getSignalId(),
                         item.getId(),
@@ -105,7 +134,19 @@ public class SignalExecutionService {
             } catch (Exception e) {
                 failCount++;
                 Double orderPrice = resolveOrderPrice(message);
-                orderExecutionService.recordFailed(signalEventId, message, item, side, qty, orderPrice, e);
+                Double takeProfit = resolveTakeProfit(params);
+                Double stopLoss = resolveStopLoss(params);
+                orderExecutionService.recordFailed(
+                        signalEventId,
+                        message,
+                        item,
+                        side,
+                        qty,
+                        orderPrice,
+                        takeProfit,
+                        stopLoss,
+                        e
+                );
                 log.error("Order failed. signalId={}, itemId={}", message.getSignalId(), item.getId(), e);
             }
         }
@@ -158,9 +199,29 @@ public class SignalExecutionService {
         String side = "BUY".equalsIgnoreCase(message.getSignal()) ? "Buy" : "Sell";
         try {
             Double orderPrice = resolveOrderPrice(message);
-            BybitOrderResult result = bybitOrderClient.placeOrder(message.getSymbol(), side, qty, orderPrice);
+            Map<String, Object> params = parseParams(chosenItem.getParamsJson());
+            Double takeProfit = resolveTakeProfit(params);
+            Double stopLoss = resolveStopLoss(params);
+            BybitOrderResult result = bybitOrderClient.placeOrder(
+                    message.getSymbol(),
+                    side,
+                    qty,
+                    orderPrice,
+                    takeProfit,
+                    stopLoss
+            );
             if (result == null || result.getRetCode() == null || result.getRetCode() != 0) {
-                orderExecutionService.recordRejected(signalEventId, message, chosenItem, side, qty, orderPrice, result);
+                orderExecutionService.recordRejected(
+                        signalEventId,
+                        message,
+                        chosenItem,
+                        side,
+                        qty,
+                        orderPrice,
+                        takeProfit,
+                        stopLoss,
+                        result
+                );
                 log.warn("Group order rejected. signalId={}, groupId={}, itemId={}, retCode={}, retMsg={}",
                         message.getSignalId(),
                         group.getId(),
@@ -169,7 +230,17 @@ public class SignalExecutionService {
                         result != null ? result.getRetMsg() : null);
                 return SignalProcessStatus.FAILED;
             }
-            orderExecutionService.recordSubmitted(signalEventId, message, chosenItem, side, qty, orderPrice, result);
+            orderExecutionService.recordSubmitted(
+                    signalEventId,
+                    message,
+                    chosenItem,
+                    side,
+                    qty,
+                    orderPrice,
+                    takeProfit,
+                    stopLoss,
+                    result
+            );
             log.info("Group order sent. signalId={}, groupId={}, itemId={}, orderType={}, price={}, retCode={}, retMsg={}",
                     message.getSignalId(),
                     group.getId(),
@@ -181,7 +252,20 @@ public class SignalExecutionService {
             return SignalProcessStatus.PROCESSED;
         } catch (Exception e) {
             Double orderPrice = resolveOrderPrice(message);
-            orderExecutionService.recordFailed(signalEventId, message, chosenItem, side, qty, orderPrice, e);
+            Map<String, Object> params = parseParams(chosenItem.getParamsJson());
+            Double takeProfit = resolveTakeProfit(params);
+            Double stopLoss = resolveStopLoss(params);
+            orderExecutionService.recordFailed(
+                    signalEventId,
+                    message,
+                    chosenItem,
+                    side,
+                    qty,
+                    orderPrice,
+                    takeProfit,
+                    stopLoss,
+                    e
+            );
             log.error("Group order failed. signalId={}, groupId={}", message.getSignalId(), group.getId(), e);
             return SignalProcessStatus.FAILED;
         }
@@ -234,5 +318,36 @@ public class SignalExecutionService {
             return null;
         }
         return message.getPrice();
+    }
+
+    private Double resolveTakeProfit(Map<String, Object> params) {
+        return resolvePositiveDouble(params, "take_profit", "tp", "takeProfit");
+    }
+
+    private Double resolveStopLoss(Map<String, Object> params) {
+        return resolvePositiveDouble(params, "stop_loss", "sl", "stopLoss");
+    }
+
+    private Double resolvePositiveDouble(Map<String, Object> params, String... keys) {
+        for (String key : keys) {
+            Object value = params.get(key);
+            if (value instanceof Number number) {
+                double parsed = number.doubleValue();
+                if (parsed > 0) {
+                    return parsed;
+                }
+            }
+            if (value instanceof String text) {
+                try {
+                    double parsed = Double.parseDouble(text);
+                    if (parsed > 0) {
+                        return parsed;
+                    }
+                } catch (Exception ignored) {
+                    // continue
+                }
+            }
+        }
+        return null;
     }
 }

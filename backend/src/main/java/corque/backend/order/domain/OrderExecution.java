@@ -73,6 +73,12 @@ public class OrderExecution {
     @Column(name = "request_price")
     private Double requestPrice;
 
+    @Column(name = "request_take_profit")
+    private Double requestTakeProfit;
+
+    @Column(name = "request_stop_loss")
+    private Double requestStopLoss;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private OrderExecutionStatus status;
@@ -118,6 +124,8 @@ public class OrderExecution {
             Double remainingQty,
             String orderType,
             Double requestPrice,
+            Double requestTakeProfit,
+            Double requestStopLoss,
             OrderExecutionStatus status,
             Integer retCode,
             String retMsg,
@@ -140,6 +148,8 @@ public class OrderExecution {
         this.remainingQty = remainingQty;
         this.orderType = orderType;
         this.requestPrice = requestPrice;
+        this.requestTakeProfit = requestTakeProfit;
+        this.requestStopLoss = requestStopLoss;
         this.status = status;
         this.retCode = retCode;
         this.retMsg = retMsg;

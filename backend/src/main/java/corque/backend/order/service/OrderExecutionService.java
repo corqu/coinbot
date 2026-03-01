@@ -31,6 +31,8 @@ public class OrderExecutionService {
             String side,
             double qty,
             Double orderPrice,
+            Double takeProfit,
+            Double stopLoss,
             BybitOrderResult result
     ) {
         double executedQty = extractDouble(result, "cumExecQty", "executedQty");
@@ -63,6 +65,8 @@ public class OrderExecutionService {
                 .remainingQty(remainingQty)
                 .orderType(orderPrice != null && orderPrice > 0 ? "Limit" : "Market")
                 .requestPrice(orderPrice)
+                .requestTakeProfit(takeProfit)
+                .requestStopLoss(stopLoss)
                 .status(status)
                 .retCode(result != null ? result.getRetCode() : null)
                 .retMsg(result != null ? result.getRetMsg() : null)
@@ -81,6 +85,8 @@ public class OrderExecutionService {
             String side,
             double qty,
             Double orderPrice,
+            Double takeProfit,
+            Double stopLoss,
             BybitOrderResult result
     ) {
         OrderExecution orderExecution = OrderExecution.builder()
@@ -99,6 +105,8 @@ public class OrderExecutionService {
                 .remainingQty(qty)
                 .orderType(orderPrice != null && orderPrice > 0 ? "Limit" : "Market")
                 .requestPrice(orderPrice)
+                .requestTakeProfit(takeProfit)
+                .requestStopLoss(stopLoss)
                 .status(OrderExecutionStatus.FAILED)
                 .retCode(result != null ? result.getRetCode() : null)
                 .retMsg(result != null ? result.getRetMsg() : null)
@@ -118,6 +126,8 @@ public class OrderExecutionService {
             String side,
             double qty,
             Double orderPrice,
+            Double takeProfit,
+            Double stopLoss,
             Exception exception
     ) {
         OrderExecution orderExecution = OrderExecution.builder()
@@ -136,6 +146,8 @@ public class OrderExecutionService {
                 .remainingQty(qty)
                 .orderType(orderPrice != null && orderPrice > 0 ? "Limit" : "Market")
                 .requestPrice(orderPrice)
+                .requestTakeProfit(takeProfit)
+                .requestStopLoss(stopLoss)
                 .status(OrderExecutionStatus.FAILED)
                 .errorMessage(truncate(exception != null ? exception.getMessage() : null, 2000))
                 .build();
