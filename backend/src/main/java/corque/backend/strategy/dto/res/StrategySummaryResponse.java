@@ -8,6 +8,7 @@ public class StrategySummaryResponse {
     private final Long id;
     private final String code;
     private final String name;
+    private final String alias;
     private final String source;
     private final String parameterSchemaJson;
     private final Boolean isActive;
@@ -17,6 +18,7 @@ public class StrategySummaryResponse {
         this.id = strategy.getId();
         this.code = strategy.getCode();
         this.name = strategy.getName();
+        this.alias = strategy.getAlias();
         this.source = strategy.getSource();
         this.parameterSchemaJson = strategy.getParameterSchemaJson();
         this.isActive = strategy.getIsActive();
