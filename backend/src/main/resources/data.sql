@@ -168,6 +168,11 @@ ON DUPLICATE KEY UPDATE
     is_active = VALUES(is_active),
     version = VALUES(version);
 
+-- Keep alias as a display label; backfill only when empty.
+UPDATE strategy
+SET alias = name
+WHERE alias IS NULL OR alias = '';
+
 -- Optional: deactivate removed strategies.
 -- UPDATE strategy
 -- SET is_active = FALSE
