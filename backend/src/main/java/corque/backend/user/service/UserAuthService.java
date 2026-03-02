@@ -43,7 +43,7 @@ public class UserAuthService {
             throw new ApiException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
         if (!emailVerificationService.isVerified(request.getEmail())) {
-            throw new ApiException(ErrorCode.INVALID_INPUT_VALUE);
+            throw new ApiException(ErrorCode.EMAIL_NOT_VERIFIED);
         }
 
         User user = userRepository.save(request.toEntity(passwordEncoder.encode(request.getPassword())));
