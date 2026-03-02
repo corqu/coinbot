@@ -23,7 +23,7 @@ export function MainLayout({ children }: PropsWithChildren) {
   };
 
   return (
-    <div className="min-h-screen text-slate-100">
+    <div className="min-h-screen overflow-x-auto text-slate-100">
       <header className="sticky top-0 z-20 border-b border-slate-800/70 bg-slate-950/85 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-8">

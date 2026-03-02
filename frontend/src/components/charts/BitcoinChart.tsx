@@ -25,6 +25,13 @@ type KlineMessage = {
   bars: StreamCandle[];
 };
 
+type CandleSummary = {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
 const fallbackData: CandlestickData[] = [
   { time: "2026-02-20", open: 94200, high: 95650, low: 93800, close: 95100 },
   { time: "2026-02-21", open: 95100, high: 96120, low: 94750, close: 95490 },
@@ -55,7 +62,39 @@ function getMarketWsUrl(): string {
   return `${protocol}//${host}:8001/ws/market?symbol=BTCUSDT&interval=15&limit=200`;
 }
 
+function toPct(base: number, value: number): string {
+  if (!Number.isFinite(base) || base === 0) return "0.00%";
+  const pct = ((value - base) / base) * 100;
+  const sign = pct > 0 ? "+" : "";
+  return `${sign}${pct.toFixed(2)}%`;
+}
+
+function formatPrice(value: number): string {
+  return value.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
+}
+
+function asCandleSummary(value: unknown): CandleSummary | null {
+  if (!value || typeof value !== "object") return null;
+
+  const candidate = value as Record<string, unknown>;
+  const open = Number(candidate.open);
+  const high = Number(candidate.high);
+  const low = Number(candidate.low);
+  const close = Number(candidate.close);
+
+  if (![open, high, low, close].every(Number.isFinite)) return null;
+  return { open, high, low, close };
+}
+
+function toneByDelta(delta: number): string {
+  if (delta > 0) return "text-emerald-400";
+  if (delta < 0) return "text-red-400";
+  return "text-slate-200";
+}
+
 export function BitcoinChart() {
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -63,8 +102,42 @@ export function BitcoinChart() {
   const reconnectTimerRef = useRef<number | null>(null);
   const destroyedRef = useRef(false);
   const [status, setStatus] = useState("Python WS 연결 대기 중...");
+  const [candleSummary, setCandleSummary] = useState<CandleSummary | null>(null);
+  const [fixedLayoutWidth, setFixedLayoutWidth] = useState<number | null>(null);
 
   useEffect(() => {
+    const updateLayoutMode = () => {
+      const viewport = viewportRef.current;
+      const overlay = overlayRef.current;
+      if (!viewport || !overlay) return;
+
+      const requiredWidth = Math.ceil(overlay.scrollWidth + 24);
+      if (viewport.clientWidth < requiredWidth) {
+        setFixedLayoutWidth(requiredWidth);
+      } else {
+        setFixedLayoutWidth(null);
+      }
+    };
+
+    updateLayoutMode();
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateLayoutMode();
+    });
+
+    if (viewportRef.current) resizeObserver.observe(viewportRef.current);
+    if (overlayRef.current) resizeObserver.observe(overlayRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [candleSummary]);
+
+  useEffect(() => {
+    // React StrictMode(dev) can run effect cleanup once before the real mount.
+    // Reset the guard so websocket connection is not permanently blocked.
+    destroyedRef.current = false;
+
     const container = containerRef.current;
     if (!container) return;
 
@@ -88,6 +161,23 @@ export function BitcoinChart() {
     chartRef.current = chart;
     seriesRef.current = series;
     series.setData(fallbackData);
+    const lastFallback = fallbackData[fallbackData.length - 1];
+    setCandleSummary({
+      open: Number(lastFallback.open),
+      high: Number(lastFallback.high),
+      low: Number(lastFallback.low),
+      close: Number(lastFallback.close),
+    });
+
+    const handleCrosshairMove = (param: { seriesData: Map<unknown, unknown> }) => {
+      const hovered = Array.from(param.seriesData.values())
+        .map((value) => asCandleSummary(value))
+        .find((value): value is CandleSummary => value !== null);
+      if (hovered) {
+        setCandleSummary(hovered);
+      }
+    };
+    chart.subscribeCrosshairMove(handleCrosshairMove);
 
     const resizeObserver = new ResizeObserver(() => {
       chart.applyOptions({ width: container.clientWidth });
@@ -101,6 +191,7 @@ export function BitcoinChart() {
         window.clearTimeout(reconnectTimerRef.current);
       }
       wsRef.current?.close();
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -127,6 +218,8 @@ export function BitcoinChart() {
             const candles = message.candles.map(toChartCandle);
             if (candles.length > 0) {
               seriesRef.current.setData(candles);
+              const latest = asCandleSummary(candles[candles.length - 1]);
+              if (latest) setCandleSummary(latest);
             }
             setStatus(`실시간 수신 중 · ${message.symbol} ${message.interval}m`);
             return;
@@ -135,6 +228,12 @@ export function BitcoinChart() {
           if (message.type === "kline") {
             for (const bar of message.bars) {
               seriesRef.current.update(toChartCandle(bar));
+              setCandleSummary({
+                open: Number(bar.open),
+                high: Number(bar.high),
+                low: Number(bar.low),
+                close: Number(bar.close),
+              });
             }
             setStatus(`마지막 업데이트 ${new Date().toLocaleTimeString()}`);
           }
@@ -167,7 +266,30 @@ export function BitcoinChart() {
         <h2 className="text-base font-semibold">Bitcoin Chart</h2>
         <span className="text-xs text-slate-400">{status}</span>
       </div>
-      <div ref={containerRef} className="w-full" />
+      <div ref={viewportRef}>
+        <div className="relative" style={fixedLayoutWidth ? { minWidth: `${fixedLayoutWidth}px` } : undefined}>
+        {candleSummary && (
+          <div
+            ref={overlayRef}
+            className="pointer-events-none absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-3 overflow-hidden whitespace-nowrap rounded-md border border-slate-700/70 bg-slate-950/80 px-3 py-2 text-xs backdrop-blur"
+          >
+            <div className={toneByDelta(candleSummary.close - candleSummary.open)}>
+              O {formatPrice(candleSummary.open)}
+            </div>
+            <div className={toneByDelta(candleSummary.high - candleSummary.open)}>
+              H {formatPrice(candleSummary.high)} ({toPct(candleSummary.open, candleSummary.high)})
+            </div>
+            <div className={toneByDelta(candleSummary.low - candleSummary.open)}>
+              L {formatPrice(candleSummary.low)} ({toPct(candleSummary.open, candleSummary.low)})
+            </div>
+            <div className={toneByDelta(candleSummary.close - candleSummary.open)}>
+              C {formatPrice(candleSummary.close)} ({toPct(candleSummary.open, candleSummary.close)})
+            </div>
+          </div>
+        )}
+        <div ref={containerRef} className="w-full" />
+        </div>
+      </div>
     </section>
   );
 }
