@@ -12,6 +12,10 @@ export function getActiveStrategies(): Promise<StrategySummary[]> {
   return apiGet<StrategySummary[]>("/api/strategies/active");
 }
 
+export function getStrategyCatalog(): Promise<StrategySummary[]> {
+  return apiGet<StrategySummary[]>("/api/strategies/catalog");
+}
+
 export function getStrategyGroup(strategyGroupId: number): Promise<StrategyGroup> {
   return apiGet<StrategyGroup>(`/api/strategies/groups/${strategyGroupId}`);
 }
