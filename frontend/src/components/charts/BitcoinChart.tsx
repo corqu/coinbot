@@ -1,5 +1,12 @@
-﻿import { createChart, type CandlestickData, type IChartApi, type ISeriesApi, type Time } from "lightweight-charts";
-import { useEffect, useRef, useState } from "react";
+import {
+  createChart,
+  type CandlestickData,
+  type IChartApi,
+  type ISeriesApi,
+  type LineData,
+  type Time,
+} from "lightweight-charts";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type StreamCandle = {
   ts: number;
@@ -30,6 +37,18 @@ type CandleSummary = {
   high: number;
   low: number;
   close: number;
+};
+
+export type ChartOverlay = {
+  id: string;
+  label: string;
+  value: number;
+  color?: string;
+  enabled?: boolean;
+};
+
+type BitcoinChartProps = {
+  overlays?: ChartOverlay[];
 };
 
 const fallbackData: CandlestickData[] = [
@@ -92,18 +111,62 @@ function toneByDelta(delta: number): string {
   return "text-slate-200";
 }
 
-export function BitcoinChart() {
+function toLineData(candles: CandlestickData[], value: number): LineData[] {
+  return candles.map((candle) => ({ time: candle.time, value }));
+}
+
+export function BitcoinChart({ overlays = [] }: BitcoinChartProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const lineSeriesMapRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  const candlesRef = useRef<CandlestickData[]>(fallbackData);
+  const overlaysRef = useRef<ChartOverlay[]>(overlays);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const destroyedRef = useRef(false);
   const [status, setStatus] = useState("Python WS 연결 대기 중...");
   const [candleSummary, setCandleSummary] = useState<CandleSummary | null>(null);
   const [fixedLayoutWidth, setFixedLayoutWidth] = useState<number | null>(null);
+
+  const syncLineOverlays = useCallback(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const activeOverlays = overlaysRef.current.filter(
+      (overlay) => overlay.enabled !== false && Number.isFinite(overlay.value),
+    );
+    const overlayIds = new Set(activeOverlays.map((overlay) => overlay.id));
+
+    for (const [id, lineSeries] of lineSeriesMapRef.current) {
+      if (!overlayIds.has(id)) {
+        chart.removeSeries(lineSeries);
+        lineSeriesMapRef.current.delete(id);
+      }
+    }
+
+    for (const overlay of activeOverlays) {
+      const existing = lineSeriesMapRef.current.get(overlay.id);
+      const lineSeries =
+        existing ??
+        chart.addLineSeries({
+          color: overlay.color ?? "#38bdf8",
+          lineWidth: 2,
+          lineStyle: 2,
+          title: overlay.label,
+          lastValueVisible: false,
+          priceLineVisible: true,
+        });
+
+      if (!existing) {
+        lineSeriesMapRef.current.set(overlay.id, lineSeries);
+      }
+
+      lineSeries.setData(toLineData(candlesRef.current, overlay.value));
+    }
+  }, []);
 
   useEffect(() => {
     const updateLayoutMode = () => {
@@ -134,8 +197,6 @@ export function BitcoinChart() {
   }, [candleSummary]);
 
   useEffect(() => {
-    // React StrictMode(dev) can run effect cleanup once before the real mount.
-    // Reset the guard so websocket connection is not permanently blocked.
     destroyedRef.current = false;
 
     const container = containerRef.current;
@@ -161,6 +222,9 @@ export function BitcoinChart() {
     chartRef.current = chart;
     seriesRef.current = series;
     series.setData(fallbackData);
+    candlesRef.current = fallbackData;
+    syncLineOverlays();
+
     const lastFallback = fallbackData[fallbackData.length - 1];
     setCandleSummary({
       open: Number(lastFallback.open),
@@ -190,13 +254,17 @@ export function BitcoinChart() {
       if (reconnectTimerRef.current) {
         window.clearTimeout(reconnectTimerRef.current);
       }
+      for (const lineSeries of lineSeriesMapRef.current.values()) {
+        chart.removeSeries(lineSeries);
+      }
+      lineSeriesMapRef.current.clear();
       wsRef.current?.close();
       chart.unsubscribeCrosshairMove(handleCrosshairMove);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, []);
+  }, [syncLineOverlays]);
 
   useEffect(() => {
     const connect = () => {
@@ -218,8 +286,10 @@ export function BitcoinChart() {
             const candles = message.candles.map(toChartCandle);
             if (candles.length > 0) {
               seriesRef.current.setData(candles);
+              candlesRef.current = candles;
               const latest = asCandleSummary(candles[candles.length - 1]);
               if (latest) setCandleSummary(latest);
+              syncLineOverlays();
             }
             setStatus(`실시간 수신 중 · ${message.symbol} ${message.interval}m`);
             return;
@@ -227,7 +297,18 @@ export function BitcoinChart() {
 
           if (message.type === "kline") {
             for (const bar of message.bars) {
-              seriesRef.current.update(toChartCandle(bar));
+              const candle = toChartCandle(bar);
+              seriesRef.current.update(candle);
+
+              const currentCandles = candlesRef.current;
+              const last = currentCandles[currentCandles.length - 1];
+              if (last && last.time === candle.time) {
+                currentCandles[currentCandles.length - 1] = candle;
+              } else {
+                currentCandles.push(candle);
+                if (currentCandles.length > 500) currentCandles.shift();
+              }
+
               setCandleSummary({
                 open: Number(bar.open),
                 high: Number(bar.high),
@@ -235,6 +316,7 @@ export function BitcoinChart() {
                 close: Number(bar.close),
               });
             }
+            syncLineOverlays();
             setStatus(`마지막 업데이트 ${new Date().toLocaleTimeString()}`);
           }
         } catch {
@@ -258,7 +340,12 @@ export function BitcoinChart() {
     return () => {
       wsRef.current?.close();
     };
-  }, []);
+  }, [syncLineOverlays]);
+
+  useEffect(() => {
+    overlaysRef.current = overlays;
+    syncLineOverlays();
+  }, [overlays, syncLineOverlays]);
 
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
@@ -268,26 +355,26 @@ export function BitcoinChart() {
       </div>
       <div ref={viewportRef}>
         <div className="relative" style={fixedLayoutWidth ? { minWidth: `${fixedLayoutWidth}px` } : undefined}>
-        {candleSummary && (
-          <div
-            ref={overlayRef}
-            className="pointer-events-none absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-3 overflow-hidden whitespace-nowrap rounded-md border border-slate-700/70 bg-slate-950/80 px-3 py-2 text-xs backdrop-blur"
-          >
-            <div className={toneByDelta(candleSummary.close - candleSummary.open)}>
-              O {formatPrice(candleSummary.open)}
+          {candleSummary && (
+            <div
+              ref={overlayRef}
+              className="pointer-events-none absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-3 overflow-hidden whitespace-nowrap rounded-md border border-slate-700/70 bg-slate-950/80 px-3 py-2 text-xs backdrop-blur"
+            >
+              <div className={toneByDelta(candleSummary.close - candleSummary.open)}>
+                O {formatPrice(candleSummary.open)}
+              </div>
+              <div className={toneByDelta(candleSummary.high - candleSummary.open)}>
+                H {formatPrice(candleSummary.high)} ({toPct(candleSummary.open, candleSummary.high)})
+              </div>
+              <div className={toneByDelta(candleSummary.low - candleSummary.open)}>
+                L {formatPrice(candleSummary.low)} ({toPct(candleSummary.open, candleSummary.low)})
+              </div>
+              <div className={toneByDelta(candleSummary.close - candleSummary.open)}>
+                C {formatPrice(candleSummary.close)} ({toPct(candleSummary.open, candleSummary.close)})
+              </div>
             </div>
-            <div className={toneByDelta(candleSummary.high - candleSummary.open)}>
-              H {formatPrice(candleSummary.high)} ({toPct(candleSummary.open, candleSummary.high)})
-            </div>
-            <div className={toneByDelta(candleSummary.low - candleSummary.open)}>
-              L {formatPrice(candleSummary.low)} ({toPct(candleSummary.open, candleSummary.low)})
-            </div>
-            <div className={toneByDelta(candleSummary.close - candleSummary.open)}>
-              C {formatPrice(candleSummary.close)} ({toPct(candleSummary.open, candleSummary.close)})
-            </div>
-          </div>
-        )}
-        <div ref={containerRef} className="w-full" />
+          )}
+          <div ref={containerRef} className="w-full" />
         </div>
       </div>
     </section>
