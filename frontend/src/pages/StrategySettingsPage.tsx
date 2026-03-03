@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BitcoinChart, type ChartOverlay } from "@/components/charts/BitcoinChart";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { useStrategyCatalog } from "@/features/strategy/hooks";
+import { useActiveStrategies } from "@/features/strategy/hooks";
 import type { StrategySummary } from "@/features/strategy/types";
 
 type SchemaFieldType = "number" | "integer" | "string" | "boolean";
@@ -143,8 +143,11 @@ function buildTree(strategies: StrategySummary[]): Map<string, RootTreeNode> {
 }
 
 export function StrategySettingsPage() {
-  const catalogQuery = useStrategyCatalog(true);
-  const strategies = catalogQuery.data && catalogQuery.data.length > 0 ? catalogQuery.data : fallbackStrategies;
+  const activeStrategiesQuery = useActiveStrategies(true);
+  const strategies =
+    activeStrategiesQuery.data && activeStrategiesQuery.data.length > 0
+      ? activeStrategiesQuery.data
+      : fallbackStrategies;
 
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
@@ -233,8 +236,8 @@ export function StrategySettingsPage() {
         <header className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
           <h1 className="text-xl font-semibold">전략 설정</h1>
           <p className="mt-2 text-sm text-slate-400">왼쪽 차트, 오른쪽 Python 전략 트리와 파라미터 설정</p>
-          {catalogQuery.isError && (
-            <p className="mt-2 text-xs text-amber-300">/api/strategies/catalog 호출 실패로 임시 데이터를 표시 중입니다.</p>
+          {activeStrategiesQuery.isError && (
+            <p className="mt-2 text-xs text-amber-300">/api/strategies/active 호출 실패로 임시 데이터를 표시 중입니다.</p>
           )}
         </header>
 
@@ -247,7 +250,7 @@ export function StrategySettingsPage() {
             <aside className="w-[360px] shrink-0 space-y-4">
               <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
                 <h2 className="text-sm font-semibold text-slate-100">Python 전략 트리</h2>
-                <p className="mt-1 text-xs text-slate-400">catalog API 기반 상위/하위 폴더 구조</p>
+                <p className="mt-1 text-xs text-slate-400">active API 기반 상위/하위 폴더 구조</p>
 
                 <div className="mt-3 max-h-[360px] space-y-3 overflow-y-auto pr-1">
                   {sortedRoots.map(([rootName, rootNode]) => {
