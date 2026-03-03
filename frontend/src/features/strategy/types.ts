@@ -2,6 +2,7 @@ export type StrategySummary = {
   id: number;
   code: string;
   name: string;
+  alias?: string;
   source: string;
   parameterSchemaJson: string;
   isActive: boolean;

@@ -53,6 +53,14 @@ public class StrategyService {
     }
 
     @Transactional(readOnly = true)
+    public List<StrategySummaryResponse> getStrategyCatalog() {
+        return strategyRepository.findAllByOrderByIdAsc()
+                .stream()
+                .map(StrategySummaryResponse::new)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<StrategyGroupResponse> getStrategyGroupsByUser(Long userId) {
         return strategyGroupRepository.findByUserIdOrderByCreatedAtDesc(userId)
                 .stream()

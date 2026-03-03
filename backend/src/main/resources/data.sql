@@ -1,5 +1,10 @@
 -- Strategy seed synchronized with python-server/app/strategy/applied_startegy
--- This seed is used for initial DB sync on backend startup.
+-- Hierarchy:
+-- applied_strategy_v1
+--   |- applied_fibonacci_v1
+--   |- applied_gann_v1
+--   |- applied_pitchfork_v1
+--   |- ma_rsi_volume_v1
 
 INSERT INTO strategy (
     code,
@@ -9,6 +14,38 @@ INSERT INTO strategy (
     is_active,
     version
 ) VALUES
+    (
+        'applied_strategy_v1',
+        'Applied Strategy',
+        'app.strategy.applied_startegy',
+        '{}',
+        FALSE,
+        'v1'
+    ),
+    (
+        'applied_fibonacci_v1',
+        'Applied Fibonacci',
+        'app.strategy.applied_startegy.fibonacci',
+        '{}',
+        FALSE,
+        'v1'
+    ),
+    (
+        'applied_gann_v1',
+        'Applied Gann',
+        'app.strategy.applied_startegy.gann',
+        '{}',
+        FALSE,
+        'v1'
+    ),
+    (
+        'applied_pitchfork_v1',
+        'Applied Pitchfork',
+        'app.strategy.applied_startegy.pitchfork',
+        '{}',
+        FALSE,
+        'v1'
+    ),
     (
         'fibonacci_channel_v1',
         'Fibonacci Channel V1',
@@ -168,10 +205,121 @@ ON DUPLICATE KEY UPDATE
     is_active = VALUES(is_active),
     version = VALUES(version);
 
+-- Keep alias as a display label; backfill only when empty.
+UPDATE strategy
+SET alias = name
+WHERE code IN (
+    'applied_strategy_v1',
+    'applied_fibonacci_v1',
+    'applied_gann_v1',
+    'applied_pitchfork_v1',
+    'fibonacci_channel_v1',
+    'fibonacci_circles_v1',
+    'fibonacci_retracement_v1',
+    'fibonacci_speed_resistance_arcs_v1',
+    'fibonacci_speed_resistance_fan_v1',
+    'fibonacci_spiral_v1',
+    'fibonacci_time_zones_v1',
+    'fibonacci_wedge_v1',
+    'gann_box_breakout_v1',
+    'gann_fan_breakout_v1',
+    'gann_square_quarter_v1',
+    'inside_pitchfork_reentry_v1',
+    'ma_rsi_volume_v1',
+    'modified_schiff_pitchfork_breakout_v1',
+    'pitchfork_breakout_v1',
+    'pitchfork_fan_breakout_v1',
+    'schiff_pitchfork_breakout_v1',
+    'trend_fibonacci_extension_v1',
+    'trend_fibonacci_time_v1'
+)
+AND (alias IS NULL OR alias = '');
+
+-- Reset parent relationship for this seed scope.
+UPDATE strategy
+SET parent_id = NULL
+WHERE code IN (
+    'applied_strategy_v1',
+    'applied_fibonacci_v1',
+    'applied_gann_v1',
+    'applied_pitchfork_v1',
+    'fibonacci_channel_v1',
+    'fibonacci_circles_v1',
+    'fibonacci_retracement_v1',
+    'fibonacci_speed_resistance_arcs_v1',
+    'fibonacci_speed_resistance_fan_v1',
+    'fibonacci_spiral_v1',
+    'fibonacci_time_zones_v1',
+    'fibonacci_wedge_v1',
+    'gann_box_breakout_v1',
+    'gann_fan_breakout_v1',
+    'gann_square_quarter_v1',
+    'inside_pitchfork_reentry_v1',
+    'ma_rsi_volume_v1',
+    'modified_schiff_pitchfork_breakout_v1',
+    'pitchfork_breakout_v1',
+    'pitchfork_fan_breakout_v1',
+    'schiff_pitchfork_breakout_v1',
+    'trend_fibonacci_extension_v1',
+    'trend_fibonacci_time_v1'
+);
+
+-- 1-depth hierarchy under applied root.
+UPDATE strategy child
+JOIN strategy parent ON parent.code = 'applied_strategy_v1'
+SET child.parent_id = parent.id
+WHERE child.code IN (
+    'applied_fibonacci_v1',
+    'applied_gann_v1',
+    'applied_pitchfork_v1',
+    'ma_rsi_volume_v1'
+);
+
+-- 2-depth hierarchy under folder nodes.
+UPDATE strategy child
+JOIN strategy parent ON parent.code = 'applied_fibonacci_v1'
+SET child.parent_id = parent.id
+WHERE child.code IN (
+    'fibonacci_channel_v1',
+    'fibonacci_circles_v1',
+    'fibonacci_retracement_v1',
+    'fibonacci_speed_resistance_arcs_v1',
+    'fibonacci_speed_resistance_fan_v1',
+    'fibonacci_spiral_v1',
+    'fibonacci_time_zones_v1',
+    'fibonacci_wedge_v1',
+    'trend_fibonacci_extension_v1',
+    'trend_fibonacci_time_v1'
+);
+
+UPDATE strategy child
+JOIN strategy parent ON parent.code = 'applied_gann_v1'
+SET child.parent_id = parent.id
+WHERE child.code IN (
+    'gann_box_breakout_v1',
+    'gann_fan_breakout_v1',
+    'gann_square_quarter_v1'
+);
+
+UPDATE strategy child
+JOIN strategy parent ON parent.code = 'applied_pitchfork_v1'
+SET child.parent_id = parent.id
+WHERE child.code IN (
+    'inside_pitchfork_reentry_v1',
+    'modified_schiff_pitchfork_breakout_v1',
+    'pitchfork_breakout_v1',
+    'pitchfork_fan_breakout_v1',
+    'schiff_pitchfork_breakout_v1'
+);
+
 -- Optional: deactivate removed strategies.
 -- UPDATE strategy
 -- SET is_active = FALSE
 -- WHERE code NOT IN (
+--     'applied_strategy_v1',
+--     'applied_fibonacci_v1',
+--     'applied_gann_v1',
+--     'applied_pitchfork_v1',
 --     'fibonacci_channel_v1',
 --     'fibonacci_circles_v1',
 --     'fibonacci_retracement_v1',

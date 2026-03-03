@@ -10,4 +10,5 @@ public interface StrategyRepository extends JpaRepository<Strategy, Long> {
     Optional<Strategy> findByCode(String code);
     Optional<Strategy> findByCodeAndIsActiveTrue(String code);
     List<Strategy> findByIsActiveTrueOrderByIdAsc();
+    List<Strategy> findAllByOrderByIdAsc();
 }
