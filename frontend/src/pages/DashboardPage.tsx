@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { authApi } from "@/features/api";
+import { ACCESS_TOKEN_TTL_SECONDS } from "@/features/auth/constants";
 import { useAuthStore } from "@/stores/authStore";
 
 type AuthMode = "signIn" | "signUp";
@@ -64,7 +65,7 @@ function inputClass(hasError: boolean): string {
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { setAuthenticated } = useAuthStore();
+  const { setLoginSession } = useAuthStore();
 
   const [mode, setMode] = useState<AuthMode>("signIn");
   const [email, setEmail] = useState("");
@@ -98,7 +99,7 @@ export function DashboardPage() {
     try {
       if (mode === "signIn") {
         await authApi.signIn({ email: email.trim(), password });
-        setAuthenticated(true);
+        setLoginSession(ACCESS_TOKEN_TTL_SECONDS);
         navigate("/");
       } else {
         await authApi.signUp({ email: email.trim(), password, nickname: nickname.trim() });

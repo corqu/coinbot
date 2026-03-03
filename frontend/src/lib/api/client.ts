@@ -2,6 +2,7 @@ export type ApiEnvelope<T> = {
   message: string;
   data: T;
 };
+import { useAuthStore } from "@/stores/authStore";
 
 type ErrorEnvelope = {
   message?: string;
@@ -42,6 +43,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      const { isAuthenticated, markSessionExpired } = useAuthStore.getState();
+      if (isAuthenticated) {
+        markSessionExpired();
+      }
+    }
+
     let message = `API request failed: ${response.status}`;
     try {
       const errorBody = (await response.json()) as ErrorEnvelope | Record<string, string>;

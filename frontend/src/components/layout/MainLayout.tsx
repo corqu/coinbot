@@ -1,6 +1,7 @@
-import type { PropsWithChildren } from "react";
+import { useEffect, useMemo, useState, type PropsWithChildren } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { authApi } from "@/features/api";
+import { ACCESS_TOKEN_TTL_SECONDS } from "@/features/auth/constants";
 import { useAuthStore } from "@/stores/authStore";
 
 const menuItems = [
@@ -10,14 +11,63 @@ const menuItems = [
 
 export function MainLayout({ children }: PropsWithChildren) {
   const navigate = useNavigate();
-  const { isAuthenticated, setAuthenticated } = useAuthStore();
+  const [now, setNow] = useState(() => Date.now());
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const {
+    isAuthenticated,
+    loginExpiresAt,
+    sessionExpiredNotice,
+    clearAuth,
+    markSessionExpired,
+    clearSessionExpiredNotice,
+  } = useAuthStore();
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated || !loginExpiresAt) return;
+    if (Date.now() >= loginExpiresAt) {
+      markSessionExpired();
+    }
+  }, [isAuthenticated, loginExpiresAt, now, markSessionExpired]);
+
+  useEffect(() => {
+    if (!sessionExpiredNotice) return;
+    window.alert("로그아웃되었습니다.");
+    clearSessionExpiredNotice();
+  }, [sessionExpiredNotice, clearSessionExpiredNotice]);
+
+  const remainingLabel = useMemo(() => {
+    if (!isAuthenticated || !loginExpiresAt) return null;
+    const remainMs = Math.max(0, loginExpiresAt - now);
+    const totalSeconds = Math.floor(remainMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }, [isAuthenticated, loginExpiresAt, now]);
 
   const handleLogout = async () => {
     try {
       await authApi.signOut();
     } finally {
-      setAuthenticated(false);
+      clearAuth();
       navigate("/");
+    }
+  };
+
+  const handleRefreshToken = async () => {
+    setIsRefreshing(true);
+    try {
+      await authApi.refreshToken();
+      useAuthStore.getState().setLoginSession(ACCESS_TOKEN_TTL_SECONDS);
+    } catch (refreshError) {
+      const message = refreshError instanceof Error ? refreshError.message : "토큰 갱신 중 오류가 발생했습니다.";
+      window.alert(message);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -52,6 +102,24 @@ export function MainLayout({ children }: PropsWithChildren) {
           <div className="flex items-center gap-2">
             {isAuthenticated ? (
               <>
+                {remainingLabel ? (
+                  <span className="flex h-8 items-center text-sm font-semibold leading-none text-sky-200">
+                    {remainingLabel}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={handleRefreshToken}
+                  disabled={isRefreshing}
+                  className="rounded-md border border-sky-800 bg-sky-900/30 p-2 text-sky-200 hover:bg-sky-900/50 disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label="Access Token Refresh"
+                  title="시간 연장"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="M20 11a8 8 0 1 0 2 5.3" />
+                    <path d="M20 4v7h-7" />
+                  </svg>
+                </button>
                 <button
                   type="button"
                   onClick={() => navigate("/my-page")}
