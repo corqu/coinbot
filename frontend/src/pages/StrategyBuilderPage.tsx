@@ -5,6 +5,7 @@ import {
   type ChartOverlay,
   type ChartPickedPoint,
   type FibonacciCircleOverlay,
+  type FibonacciChannelOverlay,
 } from "@/components/charts/BitcoinChart";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useActiveStrategies } from "@/features/strategy/hooks";
@@ -33,8 +34,10 @@ type RootTreeNode = {
 };
 
 type FibPointMode = "center" | "edge";
+type FibChannelPointMode = "start" | "end";
 
 const FIB_CIRCLE_DEFAULT_RATIOS = [0.236, 0.382, 0.5, 0.618, 1.0, 1.618, 2.0, 2.618];
+const FIB_CHANNEL_DEFAULT_RATIOS = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
 const overlayColors = ["#38bdf8", "#f97316", "#22c55e", "#eab308", "#a855f7", "#f43f5e"];
 
 function readFieldsFromSchema(schemaJson: string): StrategyField[] {
@@ -148,13 +151,14 @@ function stringifyPoint(point: ChartPickedPoint): string {
   });
 }
 
-function parseRatios(value: string): number[] {
-  if (!value.trim()) return FIB_CIRCLE_DEFAULT_RATIOS;
+function parseRatios(value: string, allowZero = false, fallback = FIB_CIRCLE_DEFAULT_RATIOS): number[] {
+  const isValid = (item: number) => Number.isFinite(item) && (allowZero ? item >= 0 : item > 0);
+  if (!value.trim()) return fallback;
   try {
     const parsed = JSON.parse(value);
     if (Array.isArray(parsed)) {
-      const numbers = parsed.map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0);
-      return numbers.length > 0 ? numbers : FIB_CIRCLE_DEFAULT_RATIOS;
+      const numbers = parsed.map((item) => Number(item)).filter((item) => isValid(item));
+      return numbers.length > 0 ? numbers : fallback;
     }
   } catch {
     // fallback to comma parser
@@ -163,8 +167,8 @@ function parseRatios(value: string): number[] {
   const numbers = value
     .split(",")
     .map((item) => Number(item.trim()))
-    .filter((item) => Number.isFinite(item) && item > 0);
-  return numbers.length > 0 ? numbers : FIB_CIRCLE_DEFAULT_RATIOS;
+    .filter((item) => isValid(item));
+  return numbers.length > 0 ? numbers : fallback;
 }
 
 export function StrategyBuilderPage() {
@@ -175,17 +179,15 @@ export function StrategyBuilderPage() {
 
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
   const [strategyName, setStrategyName] = useState("");
-  const [anchorWindowBars, setAnchorWindowBars] = useState(50);
-  const [edgeReference, setEdgeReference] = useState<"high" | "low">("high");
-  const [breakoutRatio, setBreakoutRatio] = useState(1.26);
-  const [takeProfitPercent, setTakeProfitPercent] = useState(3);
-  const [stopLossPercent, setStopLossPercent] = useState(3);
   const [showParameterEditor, setShowParameterEditor] = useState(false);
   const [targetFieldKey, setTargetFieldKey] = useState<string | null>(null);
   const [fibPointMode, setFibPointMode] = useState<FibPointMode | null>(null);
   const [fibChartPickActive, setFibChartPickActive] = useState(false);
   const [fibOverlaySelected, setFibOverlaySelected] = useState(false);
   const [fibPreviewEdgePoint, setFibPreviewEdgePoint] = useState<ChartPickedPoint | null>(null);
+  const [fibChannelPointMode, setFibChannelPointMode] = useState<FibChannelPointMode | null>(null);
+  const [fibChannelChartPickActive, setFibChannelChartPickActive] = useState(false);
+  const [fibChannelPreviewEndPoint, setFibChannelPreviewEndPoint] = useState<ChartPickedPoint | null>(null);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [overlayEnabled, setOverlayEnabled] = useState<Record<string, boolean>>({});
 
@@ -206,6 +208,7 @@ export function StrategyBuilderPage() {
     [selectedStrategy],
   );
   const isFibonacciCircles = selectedStrategy?.code === "fibonacci_circles_v1";
+  const isFibonacciChannel = selectedStrategy?.code === "fibonacci_channel_v1";
 
   useEffect(() => {
     setFieldValues(buildInitialValues(fields));
@@ -214,6 +217,9 @@ export function StrategyBuilderPage() {
     setFibChartPickActive(false);
     setFibOverlaySelected(false);
     setFibPreviewEdgePoint(null);
+    setFibChannelPointMode(null);
+    setFibChannelChartPickActive(false);
+    setFibChannelPreviewEndPoint(null);
 
     const nextOverlayEnabled: Record<string, boolean> = {};
     for (const field of fields) nextOverlayEnabled[field.key] = false;
@@ -231,6 +237,18 @@ export function StrategyBuilderPage() {
       };
     });
   }, [isFibonacciCircles]);
+
+  useEffect(() => {
+    if (!isFibonacciChannel) return;
+    setFieldValues((prev) => {
+      const ratios = (prev.ratios ?? "").trim();
+      if (ratios) return prev;
+      return {
+        ...prev,
+        ratios: JSON.stringify(FIB_CHANNEL_DEFAULT_RATIOS),
+      };
+    });
+  }, [isFibonacciChannel]);
 
   const chartOverlays = useMemo<ChartOverlay[]>(() => {
     return fields.reduce<ChartOverlay[]>((acc, field, index) => {
@@ -266,6 +284,31 @@ export function StrategyBuilderPage() {
     };
   }, [fibCenterPoint, fibEdgePoint, fibRatios, fibChartPickActive, fibPointMode, fibPreviewEdgePoint, isFibonacciCircles]);
 
+  const fibChannelStartPoint = useMemo(() => parsePoint(fieldValues.start ?? ""), [fieldValues.start]);
+  const fibChannelEndPoint = useMemo(() => parsePoint(fieldValues.end ?? ""), [fieldValues.end]);
+  const fibChannelRatios = useMemo(
+    () => parseRatios(fieldValues.ratios ?? "", true, FIB_CHANNEL_DEFAULT_RATIOS),
+    [fieldValues.ratios],
+  );
+
+  const fibChannelOverlay = useMemo<FibonacciChannelOverlay | undefined>(() => {
+    if (!isFibonacciChannel) return undefined;
+    return {
+      start: fibChannelStartPoint,
+      end: fibChannelEndPoint,
+      previewEnd: fibChannelChartPickActive && fibChannelPointMode === "end" ? fibChannelPreviewEndPoint : null,
+      ratios: fibChannelRatios,
+    };
+  }, [
+    fibChannelChartPickActive,
+    fibChannelEndPoint,
+    fibChannelPointMode,
+    fibChannelPreviewEndPoint,
+    fibChannelRatios,
+    fibChannelStartPoint,
+    isFibonacciChannel,
+  ]);
+
   const tree = useMemo(() => buildTree(strategies), [strategies]);
   const sortedRoots = useMemo(() => Array.from(tree.entries()).sort(([a], [b]) => a.localeCompare(b)), [tree]);
 
@@ -285,6 +328,15 @@ export function StrategyBuilderPage() {
           setFibChartPickActive(false);
           setFibOverlaySelected(false);
           setFibPreviewEdgePoint(null);
+          if (isCreateMode && strategy.code === "fibonacci_channel_v1") {
+            setFibChannelPointMode("start");
+            setFibChannelChartPickActive(true);
+            setFibChannelPreviewEndPoint(null);
+          } else {
+            setFibChannelPointMode(null);
+            setFibChannelChartPickActive(false);
+            setFibChannelPreviewEndPoint(null);
+          }
         }}
         className={`w-full rounded-md border px-3 py-2 text-left text-xs transition ${
           selected
@@ -312,8 +364,10 @@ export function StrategyBuilderPage() {
           <div className="flex min-w-[1140px] items-start gap-4">
             <section className="w-[760px] shrink-0">
               <BitcoinChart
+                enableDrawingTools={true}
                 overlays={chartOverlays}
                 fibonacciCircleOverlay={fibOverlay}
+                fibonacciChannelOverlay={fibChannelOverlay}
                 overlaySelectionEnabled={!fibChartPickActive}
                 showFibonacciActions={showParameterEditor && isFibonacciCircles && fibOverlaySelected}
                 onFibonacciDelete={() => {
@@ -341,11 +395,15 @@ export function StrategyBuilderPage() {
                   setFibPreviewEdgePoint(null);
                 }}
                 onHoverPointChange={(point) => {
-                  if (!isFibonacciCircles || !fibChartPickActive || fibPointMode !== "edge" || !fibCenterPoint) return;
-                  setFibPreviewEdgePoint(point);
+                  if (isFibonacciCircles && fibChartPickActive && fibPointMode === "edge" && fibCenterPoint) {
+                    setFibPreviewEdgePoint(point);
+                  }
+                  if (isFibonacciChannel && fibChannelChartPickActive && fibChannelPointMode === "end") {
+                    setFibChannelPreviewEndPoint(point);
+                  }
                 }}
                 onPricePick={(price) => {
-                  if (isFibonacciCircles && fibChartPickActive) return;
+                  if ((isFibonacciCircles && fibChartPickActive) || (isFibonacciChannel && fibChannelChartPickActive)) return;
                   if (!targetFieldKey) return;
                   const targetField = fields.find((f) => f.key === targetFieldKey);
                   if (!targetField) return;
@@ -359,6 +417,29 @@ export function StrategyBuilderPage() {
                   }));
                 }}
                 onPointPick={(point) => {
+                  if (isFibonacciChannel && fibChannelChartPickActive) {
+                    if (point.ts === null) return;
+
+                    if (fibChannelPointMode === "end") {
+                      setFieldValues((prev) => ({
+                        ...prev,
+                        end: stringifyPoint(point),
+                      }));
+                      setFibChannelPointMode(null);
+                      setFibChannelChartPickActive(false);
+                      setFibChannelPreviewEndPoint(null);
+                      return;
+                    }
+
+                    setFieldValues((prev) => ({
+                      ...prev,
+                      start: stringifyPoint(point),
+                    }));
+                    setFibChannelPointMode("end");
+                    setFibChannelPreviewEndPoint(null);
+                    return;
+                  }
+
                   if (!isFibonacciCircles || !fibChartPickActive) return;
                   if (point.ts === null) return;
 
@@ -380,6 +461,27 @@ export function StrategyBuilderPage() {
                   setFibPreviewEdgePoint(null);
                   setFibPointMode("edge");
                 }}
+                onFibonacciChannelPointDrag={
+                  isFibonacciChannel
+                    ? (target, point) => {
+                        setFieldValues((prev) => ({
+                          ...prev,
+                          [target]: stringifyPoint(point),
+                        }));
+                      }
+                    : undefined
+                }
+                onFibonacciChannelMove={
+                  isFibonacciChannel
+                    ? ({ start, end }) => {
+                        setFieldValues((prev) => ({
+                          ...prev,
+                          start: stringifyPoint(start),
+                          end: stringifyPoint(end),
+                        }));
+                      }
+                    : undefined
+                }
               />
             </section>
 
@@ -398,77 +500,10 @@ export function StrategyBuilderPage() {
                           placeholder="예: BTC 피보나치 돌파 전략"
                           className="mt-1 w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
                         />
-                        <div className="mt-3 space-y-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
-                          <div>
-                            <label className="block text-[11px] text-slate-400">기준점 기간(봉 수)</label>
-                            <input
-                              type="number"
-                              min={5}
-                              step={1}
-                              value={anchorWindowBars}
-                              onChange={(event) => setAnchorWindowBars(Math.max(5, Number(event.target.value) || 5))}
-                              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
-                            />
-                            <p className="mt-1 text-[11px] text-slate-500">예: 최근 50봉의 최고/최저 중간점을 center로 사용</p>
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] text-slate-400">Edge 기준</label>
-                            <select
-                              value={edgeReference}
-                              onChange={(event) => setEdgeReference(event.target.value as "high" | "low")}
-                              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
-                            >
-                              <option value="high">최고점 거리</option>
-                              <option value="low">최저점 거리</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] text-slate-400">롱 진입 돌파 배율</label>
-                            <input
-                              type="number"
-                              min={0.1}
-                              step={0.01}
-                              value={breakoutRatio}
-                              onChange={(event) => setBreakoutRatio(Math.max(0.1, Number(event.target.value) || 0.1))}
-                              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
-                            />
-                            <p className="mt-1 text-[11px] text-slate-500">예: 1.26 원 상향 돌파 시 롱</p>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="block text-[11px] text-slate-400">익절(%)</label>
-                              <input
-                                type="number"
-                                min={0.1}
-                                step={0.1}
-                                value={takeProfitPercent}
-                                onChange={(event) =>
-                                  setTakeProfitPercent(Math.max(0.1, Number(event.target.value) || 0.1))
-                                }
-                                className="mt-1 w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] text-slate-400">손절(%)</label>
-                              <input
-                                type="number"
-                                min={0.1}
-                                step={0.1}
-                                value={stopLossPercent}
-                                onChange={(event) => setStopLossPercent(Math.max(0.1, Number(event.target.value) || 0.1))}
-                                className="mt-1 w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
-                              />
-                            </div>
-                          </div>
-                        </div>
                       </div>
                     ) : null}
-                    <div className={isCreateMode ? "hidden" : ""}>
                     <h2 className="text-sm font-semibold text-slate-100">
-                      {showParameterEditor ? "파라미터 입력" : "Python 전략 트리"}
+                      {showParameterEditor ? "파라미터 입력" : isCreateMode ? "전략 먼저 선택" : "Python 전략 트리"}
                     </h2>
                     {showParameterEditor ? (
                       <p className="mt-1 text-[11px] text-emerald-300">
@@ -480,7 +515,11 @@ export function StrategyBuilderPage() {
                           : "-"}
                       </p>
                     ) : (
-                      <p className="mt-1 text-xs text-slate-400">active API 湲곕컲 ?곸쐞/?섏쐞 ?대뜑 援ъ“</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {isCreateMode
+                          ? "전략을 먼저 선택하면 해당 전략의 요구사항 입력 폼이 열립니다."
+                          : "active API 湲곕컲 ?곸쐞/?섏쐞 ?대뜑 援ъ“"}
+                      </p>
                     )}
                     {showParameterEditor && targetFieldKey && (
                       <p className="mt-1 text-[11px] text-sky-300">차트 클릭 반영 대상: {targetFieldKey}</p>
@@ -488,14 +527,20 @@ export function StrategyBuilderPage() {
                     {showParameterEditor && isFibonacciCircles && fibChartPickActive && (
                       <p className="mt-1 text-[11px] text-sky-300">차트 선택 모드: {fibPointMode === "edge" ? "edge" : "center"}</p>
                     )}
+                    {showParameterEditor && isFibonacciChannel && fibChannelChartPickActive && (
+                      <p className="mt-1 text-[11px] text-sky-300">
+                        차트 선택 모드: {fibChannelPointMode === "end" ? "end" : "start"}
+                      </p>
+                    )}
                     {showParameterEditor && !targetFieldKey && (
                       <p className="mt-1 text-[11px] text-slate-400">
-                        {isFibonacciCircles
+                        {isFibonacciChannel
+                          ? "차트에서 start/end를 순서대로 클릭하면 채널이 바로 그려집니다."
+                          : isFibonacciCircles
                           ? "차트 선택 버튼으로 center/edge를 순서대로 선택하세요."
                           : "숫자 입력칸을 먼저 클릭한 뒤 차트를 클릭하세요."}
                       </p>
                     )}
-                    </div>
                   </div>
                   {!isCreateMode && showParameterEditor && (
                     <div className="flex items-center gap-2">
@@ -526,6 +571,9 @@ export function StrategyBuilderPage() {
                           setFibChartPickActive(false);
                           setFibOverlaySelected(false);
                           setFibPreviewEdgePoint(null);
+                          setFibChannelPointMode(null);
+                          setFibChannelChartPickActive(false);
+                          setFibChannelPreviewEndPoint(null);
                         }}
                         className="rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800/70"
                       >
@@ -537,6 +585,28 @@ export function StrategyBuilderPage() {
 
                 {showParameterEditor ? (
                   <div className="mt-3 h-[460px] space-y-3 overflow-y-auto pr-1">
+                    {isCreateMode && isFibonacciChannel ? (
+                      <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                        <p className="text-xs text-slate-300">
+                          파라미터 입력 없이 차트에서 start/end를 순서대로 클릭하면 채널이 즉시 표시됩니다.
+                        </p>
+                        {!fibChannelChartPickActive && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFibChannelPointMode("start");
+                              setFibChannelChartPickActive(true);
+                              setFibChannelPreviewEndPoint(null);
+                            }}
+                            className="mt-2 rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800/70"
+                          >
+                            채널 다시 그리기
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
+                    {!(isCreateMode && isFibonacciChannel) && (
+                      <>
                     {fields.length === 0 && <p className="text-xs text-slate-500">표시할 파라미터가 없습니다.</p>}
                     {fields.map((field) => {
                       const isNumeric = field.type === "number" || field.type === "integer";
@@ -619,6 +689,8 @@ export function StrategyBuilderPage() {
                         </div>
                       );
                     })}
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div className="mt-3 h-[460px] space-y-3 overflow-y-auto pr-1">
