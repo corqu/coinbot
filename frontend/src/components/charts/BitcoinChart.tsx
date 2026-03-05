@@ -106,10 +106,10 @@ type BitcoinChartProps = {
 const FIB_CIRCLE_DEFAULT_RATIOS = [0.236, 0.382, 0.5, 0.618, 1.0, 1.618, 2.0, 2.618];
 const FIB_CHANNEL_DEFAULT_RATIOS = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
 const FIB_CHANNEL_DEFAULT_EXT_RATIOS = [0.618, 1.0, 1.272, 1.618, 2.0, 2.618];
-const FIB_CHANNEL_FORWARD_BARS = 60;
 const MAIN_CHART_HEIGHT = 330;
 const INDICATOR_PANEL_HEIGHT = 130;
 const TOOL_RAIL_WIDTH = 40;
+const PRICE_SCALE_RESERVED = 56;
 
 const DRAWING_TOOLS = [
   { id: "trendline", label: "추세선" },
@@ -434,16 +434,24 @@ export function BitcoinChart({
   const lastPickAtRef = useRef<number>(0);
   const lastFibDragAtRef = useRef<number>(0);
   const fibDragTargetRef = useRef<
-    "center" | "edge" | "channel-start" | "channel-end" | "channel-move" | "drawing-start" | "drawing-end" | null
+    | "center"
+    | "edge"
+    | "channel-start"
+    | "channel-end"
+    | "channel-move"
+    | "drawing-start"
+    | "drawing-end"
+    | "drawing-move"
+    | null
   >(null);
   const fibDragMovedRef = useRef<boolean>(false);
   const channelMoveSessionRef = useRef<
     | {
-        start: ChartPickedPoint;
-        end: ChartPickedPoint;
-        startIndex: number;
-        endIndex: number;
-        grabIndex: number;
+        startTs: number;
+        endTs: number;
+        startPrice: number;
+        endPrice: number;
+        grabTs: number;
         grabPrice: number;
       }
     | null
@@ -470,8 +478,15 @@ export function BitcoinChart({
   const selectedDrawingIdRef = useRef<string | null>(selectedDrawingId);
   const drawingGeometriesRef = useRef<UserDrawingScreenGeometry[]>([]);
   const drawingDragIdRef = useRef<string | null>(null);
+  const drawingMoveSessionRef = useRef<{
+    drawingId: string;
+    start: ChartPickedPoint;
+    end: ChartPickedPoint;
+    grabPoint: ChartPickedPoint;
+  } | null>(null);
   const pendingDrawingStartRef = useRef<ChartPickedPoint | null>(pendingDrawingStart);
   const pendingDrawingHoverRef = useRef<ChartPickedPoint | null>(pendingDrawingHover);
+  const selectedToolFibonacciRef = useRef<boolean>(selectedToolFibonacci);
 
   useEffect(() => {
     setPendingDrawingStart(null);
@@ -496,6 +511,10 @@ export function BitcoinChart({
   useEffect(() => {
     selectedDrawingIdRef.current = selectedDrawingId;
   }, [selectedDrawingId]);
+
+  useEffect(() => {
+    selectedToolFibonacciRef.current = selectedToolFibonacci;
+  }, [selectedToolFibonacci]);
 
   useEffect(() => {
     pendingDrawingStartRef.current = pendingDrawingStart;
@@ -673,11 +692,7 @@ export function BitcoinChart({
     const leftX = logicalToCoordinateSafe(chart, leftLogical);
     const rightX = logicalToCoordinateSafe(chart, rightLogical);
     if (leftX === null || rightX === null) return null;
-    const projectedRightX = logicalToCoordinateSafe(
-      chart,
-      Math.max(rightLogical, candles.length - 1) + FIB_CHANNEL_FORWARD_BARS,
-    ) ?? rightX;
-    const extensionRightX = Math.max(rightX, projectedRightX);
+    const extensionRightX = rightX;
 
     const price0 = start.price;
     const price1 = end.price;
@@ -806,8 +821,7 @@ export function BitcoinChart({
     if (!svg || !container) return;
 
     // Exclude right price-scale strip so overlay stays inside the plot area.
-    const priceScaleReserved = 56;
-    const width = Math.max(0, container.clientWidth - priceScaleReserved);
+    const width = Math.max(0, container.clientWidth - PRICE_SCALE_RESERVED);
     // Exclude bottom time-scale strip so overlay stays inside the plot area.
     const timeScaleReserved = 26;
     const height = Math.max(0, container.clientHeight - timeScaleReserved);
@@ -1124,32 +1138,20 @@ export function BitcoinChart({
       const chart = chartRef.current;
       if (!chart || candles.length === 0) return null;
 
-      const currentTs = toUnixTs(chart.timeScale().coordinateToTime(x));
+      const currentTs = inferTsFromCoordinate(chart, candles, x);
       const currentPrice = series.coordinateToPrice(y);
       if (currentTs === null || currentPrice === null || !Number.isFinite(currentPrice)) return null;
-      const currentIndex = nearestCandleIndexByTs(candles, currentTs);
-      if (currentIndex === null) return null;
-
-      const minDelta = -Math.min(session.startIndex, session.endIndex);
-      const maxDelta = candles.length - 1 - Math.max(session.startIndex, session.endIndex);
-      const rawDeltaIndex = currentIndex - session.grabIndex;
-      const deltaIndex = Math.max(minDelta, Math.min(maxDelta, rawDeltaIndex));
+      const deltaTs = currentTs - session.grabTs;
       const deltaPrice = rounded(currentPrice - session.grabPrice);
-
-      const nextStartIndex = session.startIndex + deltaIndex;
-      const nextEndIndex = session.endIndex + deltaIndex;
-      const startTs = toUnixTs(candles[nextStartIndex]?.time);
-      const endTs = toUnixTs(candles[nextEndIndex]?.time);
-      if (startTs === null || endTs === null) return null;
 
       return {
         start: {
-          ts: startTs,
-          price: rounded(session.start.price + deltaPrice),
+          ts: Math.floor(session.startTs + deltaTs),
+          price: rounded(session.startPrice + deltaPrice),
         },
         end: {
-          ts: endTs,
-          price: rounded(session.end.price + deltaPrice),
+          ts: Math.floor(session.endTs + deltaTs),
+          price: rounded(session.endPrice + deltaPrice),
         },
       };
     },
@@ -1214,6 +1216,30 @@ export function BitcoinChart({
 
     return null;
   }, []);
+
+  const handleDeleteSelectedDrawing = useCallback(() => {
+    const selectedId = selectedDrawingIdRef.current;
+    if (selectedId) {
+      setUserDrawings((prev) => prev.filter((item) => item.id !== selectedId));
+      setSelectedDrawingId(null);
+      drawingDragIdRef.current = null;
+      drawingMoveSessionRef.current = null;
+    }
+  }, []);
+
+  const handleDeleteSelectedFibonacci = useCallback(() => {
+    if (!selectedToolFibonacciRef.current) return;
+    onFibonacciDelete?.();
+    setToolFibonacciOverlay(undefined);
+    setSelectedToolFibonacci(false);
+    setPendingDrawingStart(null);
+    setPendingDrawingHover(null);
+  }, [onFibonacciDelete]);
+
+  const handleDeleteSelected = useCallback(() => {
+    handleDeleteSelectedDrawing();
+    handleDeleteSelectedFibonacci();
+  }, [handleDeleteSelectedDrawing, handleDeleteSelectedFibonacci]);
 
   useEffect(() => {
     const updateLayoutMode = () => {
@@ -1438,13 +1464,14 @@ export function BitcoinChart({
       const rect = container.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
-      const hasToolFibo = Boolean(enableDrawingTools && toolFibonacciOverlay?.start && toolFibonacciOverlay?.end);
+      const activeChannelOverlay = fibonacciChannelRef.current;
+      const hasToolFibo = Boolean(enableDrawingTools && activeChannelOverlay?.start && activeChannelOverlay?.end);
       if (hasToolFibo && hitTestFibonacciChannelOverlay(x, y)) {
         setSelectedToolFibonacci(true);
         setSelectedDrawingId(null);
         return;
       }
-      if (selectedToolFibonacci) {
+      if (selectedToolFibonacciRef.current) {
         setSelectedToolFibonacci(false);
       }
 
@@ -1496,13 +1523,35 @@ export function BitcoinChart({
         if (drawingHit.target === "start" || drawingHit.target === "end") {
           fibDragTargetRef.current = drawingHit.target === "start" ? "drawing-start" : "drawing-end";
           drawingDragIdRef.current = drawingHit.id;
+          drawingMoveSessionRef.current = null;
           fibDragMovedRef.current = false;
           setChartInteractionEnabled(false);
           container.style.cursor = "grabbing";
+        } else {
+          const grabbedPoint = toPickedPointFromCoordinate(x, y);
+          const sourceDrawing = userDrawingsRef.current.find((item) => item.id === drawingHit.id);
+          if (grabbedPoint && sourceDrawing && sourceDrawing.start.ts !== null && sourceDrawing.end.ts !== null) {
+            fibDragTargetRef.current = "drawing-move";
+            drawingDragIdRef.current = drawingHit.id;
+            drawingMoveSessionRef.current = {
+              drawingId: drawingHit.id,
+              start: sourceDrawing.start,
+              end: sourceDrawing.end,
+              grabPoint: grabbedPoint,
+            };
+            fibDragMovedRef.current = false;
+            setChartInteractionEnabled(false);
+            container.style.cursor = "grabbing";
+          }
         }
-        event.preventDefault();
-        event.stopPropagation();
-        return;
+        if (fibDragTargetRef.current) {
+          fibDragMovedRef.current = false;
+        }
+        if (fibDragTargetRef.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
       }
 
       // While placing the second point, keep click flow for point placement only.
@@ -1512,7 +1561,11 @@ export function BitcoinChart({
       const fibTarget = pickFibonacciHandle(x, y);
       const channelTarget = pickFibonacciChannelHandle(x, y);
       const channelHit = hitTestFibonacciChannelOverlay(x, y);
-      if (!fibTarget && !channelTarget && !channelHit) return;
+      if (!fibTarget && !channelTarget && !channelHit) {
+        if (selectedDrawingIdRef.current) setSelectedDrawingId(null);
+        if (selectedToolFibonacciRef.current) setSelectedToolFibonacci(false);
+        return;
+      }
 
       if (fibTarget) {
         fibDragTargetRef.current = fibTarget;
@@ -1522,22 +1575,17 @@ export function BitcoinChart({
         fibDragTargetRef.current = channelTarget === "start" ? "channel-start" : "channel-end";
       } else {
         const channel = fibonacciChannelRef.current;
-        const candles = candlesRef.current;
         const point = toPickedPointFromCoordinate(x, y);
-        if (!channel?.start || !channel?.end || !point || point.ts === null || candles.length === 0) return;
+        if (!channel?.start || !channel?.end || !point || point.ts === null) return;
         const startTs = channel.start.ts;
         const endTs = channel.end.ts;
         if (startTs === null || endTs === null) return;
-        const startIndex = nearestCandleIndexByTs(candles, startTs);
-        const endIndex = nearestCandleIndexByTs(candles, endTs);
-        const grabIndex = nearestCandleIndexByTs(candles, point.ts);
-        if (startIndex === null || endIndex === null || grabIndex === null) return;
         channelMoveSessionRef.current = {
-          start: channel.start,
-          end: channel.end,
-          startIndex,
-          endIndex,
-          grabIndex,
+          startTs,
+          endTs,
+          startPrice: channel.start.price,
+          endPrice: channel.end.price,
+          grabTs: point.ts,
           grabPrice: point.price,
         };
         setSelectedToolFibonacci(true);
@@ -1560,6 +1608,7 @@ export function BitcoinChart({
       fibDragTargetRef.current = null;
       channelMoveSessionRef.current = null;
       drawingDragIdRef.current = null;
+      drawingMoveSessionRef.current = null;
       fibDragMovedRef.current = false;
       setChartInteractionEnabled(true);
       container.style.cursor = "";
@@ -1572,6 +1621,36 @@ export function BitcoinChart({
 
       const activeTarget = fibDragTargetRef.current;
       if (activeTarget) {
+        if (activeTarget === "drawing-move") {
+          const session = drawingMoveSessionRef.current;
+          const point = toPickedPointFromCoordinate(x, y);
+          if (!session || !point || point.ts === null || session.grabPoint.ts === null) return;
+          const deltaPrice = point.price - session.grabPoint.price;
+          const deltaTs = point.ts - session.grabPoint.ts;
+          fibDragMovedRef.current = true;
+          lastFibDragAtRef.current = Date.now();
+          setUserDrawings((prev) =>
+            prev.map((item) =>
+              item.id === session.drawingId
+                ? {
+                    ...item,
+                    start: {
+                      price: rounded(session.start.price + deltaPrice),
+                      ts: session.start.ts === null ? null : session.start.ts + deltaTs,
+                    },
+                    end: {
+                      price: rounded(session.end.price + deltaPrice),
+                      ts: session.end.ts === null ? null : session.end.ts + deltaTs,
+                    },
+                  }
+                : item,
+            ),
+          );
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+
         if (activeTarget === "channel-move") {
           const moved = computeMovedChannelPoints(x, y);
           if (!moved) return;
@@ -1635,6 +1714,35 @@ export function BitcoinChart({
       const rect = container.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
+      if (activeTarget === "drawing-move") {
+        const session = drawingMoveSessionRef.current;
+        const point = toPickedPointFromCoordinate(x, y);
+        if (!session || !point || point.ts === null || session.grabPoint.ts === null) return;
+        const deltaPrice = point.price - session.grabPoint.price;
+        const deltaTs = point.ts - session.grabPoint.ts;
+        fibDragMovedRef.current = true;
+        lastFibDragAtRef.current = Date.now();
+        setUserDrawings((prev) =>
+          prev.map((item) =>
+            item.id === session.drawingId
+              ? {
+                  ...item,
+                  start: {
+                    price: rounded(session.start.price + deltaPrice),
+                    ts: session.start.ts === null ? null : session.start.ts + deltaTs,
+                  },
+                  end: {
+                    price: rounded(session.end.price + deltaPrice),
+                    ts: session.end.ts === null ? null : session.end.ts + deltaTs,
+                  },
+                }
+              : item,
+          ),
+        );
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (activeTarget === "channel-move") {
         const moved = computeMovedChannelPoints(x, y);
         if (!moved) return;
@@ -1872,6 +1980,27 @@ export function BitcoinChart({
     userDrawings,
   ]);
 
+  useEffect(() => {
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      const isDeleteKey = event.key === "Delete" || event.key === "Backspace";
+      if (!isDeleteKey) return;
+
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+
+      if (!selectedDrawingIdRef.current && !selectedToolFibonacciRef.current) return;
+      event.preventDefault();
+      handleDeleteSelected();
+    };
+
+    window.addEventListener("keydown", handleWindowKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleWindowKeyDown);
+    };
+  }, [handleDeleteSelected]);
+
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
       <div className="mb-2 flex items-center justify-between rounded-md border border-slate-800 bg-slate-950/70 px-3 py-2">
@@ -1962,21 +2091,13 @@ export function BitcoinChart({
               style={fixedLayoutWidth ? { minWidth: `${fixedLayoutWidth}px` } : undefined}
             >
               {enableDrawingTools && (selectedDrawingId || selectedToolFibonacci) && (
-                <div className="absolute right-2 top-2 z-20 flex items-center gap-2">
+                <div
+                  className="absolute top-2 z-20 flex items-center gap-2"
+                  style={{ right: `${PRICE_SCALE_RESERVED + 18}px` }}
+                >
                   <button
                     type="button"
-                    onClick={() => {
-                      if (selectedDrawingId) {
-                        setUserDrawings((prev) => prev.filter((item) => item.id !== selectedDrawingId));
-                        setSelectedDrawingId(null);
-                      }
-                      if (selectedToolFibonacci) {
-                        setToolFibonacciOverlay(undefined);
-                        setSelectedToolFibonacci(false);
-                        setPendingDrawingStart(null);
-                        setPendingDrawingHover(null);
-                      }
-                    }}
+                    onClick={handleDeleteSelected}
                     className="rounded-md border border-red-700 bg-slate-950/80 px-2 py-1 text-[11px] text-red-300 hover:bg-red-900/30"
                   >
                     선택 도형 삭제

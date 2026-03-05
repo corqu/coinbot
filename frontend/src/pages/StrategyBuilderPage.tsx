@@ -311,6 +311,7 @@ export function StrategyBuilderPage() {
 
   const tree = useMemo(() => buildTree(strategies), [strategies]);
   const sortedRoots = useMemo(() => Array.from(tree.entries()).sort(([a], [b]) => a.localeCompare(b)), [tree]);
+  const isUsingMockStrategies = useMemo(() => strategies.some((strategy) => strategy.version.startsWith("mock-")), [strategies]);
 
   const renderStrategyButton = (strategy: StrategySummary) => {
     const { file } = toStrategyPathParts(strategy.source, strategy.code);
@@ -355,8 +356,8 @@ export function StrategyBuilderPage() {
         <header className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
           <h1 className="text-xl font-semibold">전략 설정</h1>
           <p className="mt-2 text-sm text-slate-400">좌측 차트, 우측 전략 트리와 파라미터 입력으로 전략을 구성합니다.</p>
-          {activeStrategiesQuery.isError && (
-            <p className="mt-2 text-xs text-amber-300">/api/strategies/active 호출에 실패해 임시 데이터를 표시 중입니다.</p>
+          {isUsingMockStrategies && (
+            <p className="mt-2 text-xs text-amber-300">백엔드 비연결 상태로 샘플 전략 데이터를 표시 중입니다.</p>
           )}
         </header>
 
@@ -518,7 +519,7 @@ export function StrategyBuilderPage() {
                       <p className="mt-1 text-xs text-slate-400">
                         {isCreateMode
                           ? "전략을 먼저 선택하면 해당 전략의 요구사항 입력 폼이 열립니다."
-                          : "active API 湲곕컲 ?곸쐞/?섏쐞 ?대뜑 援ъ“"}
+                          : "active API 기반 상위/하위 트리 구조"}
                       </p>
                     )}
                     {showParameterEditor && targetFieldKey && (
@@ -696,9 +697,6 @@ export function StrategyBuilderPage() {
                   <div className="mt-3 h-[460px] space-y-3 overflow-y-auto pr-1">
                     {activeStrategiesQuery.isLoading && (
                       <p className="text-xs text-slate-400">전략 목록을 불러오는 중입니다...</p>
-                    )}
-                    {activeStrategiesQuery.isError && (
-                      <p className="text-xs text-amber-300">전략 목록 조회에 실패했습니다. 백엔드 연결 상태를 확인해주세요.</p>
                     )}
                     {!activeStrategiesQuery.isLoading && !activeStrategiesQuery.isError && sortedRoots.length === 0 && (
                       <p className="text-xs text-slate-400">생성된 전략이 없습니다.</p>
