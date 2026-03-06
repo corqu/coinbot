@@ -884,8 +884,9 @@ export function BitcoinChart({
       ? circleGeometry.rings
           .map((ring) => {
             const color = ring.external ? "#f97316" : "#38bdf8";
-            const dash = ring.external ? ' stroke-dasharray="6 4"' : "";
-            return `<path data-fib-overlay="true" d="${ring.path}" fill="none" stroke="${color}" stroke-width="1.5" stroke-opacity="${ring.strokeOpacity}"${dash} pointer-events="visibleStroke" />`;
+            const radius = Math.hypot(circleGeometry.ex - circleGeometry.cx, circleGeometry.ey - circleGeometry.cy) * ring.ratio;
+            if (!Number.isFinite(radius) || radius <= 0) return "";
+            return `<circle cx="${circleGeometry.cx}" cy="${circleGeometry.cy}" r="${radius}" fill="none" stroke="${color}" stroke-width="1.5" stroke-opacity="${ring.strokeOpacity}" ${ring.external ? 'stroke-dasharray="6 4"' : ""} />`;
           })
           .join("")
       : "";
@@ -893,16 +894,18 @@ export function BitcoinChart({
     const circleExtPaths = circleGeometry
       ? circleGeometry.extRings
           .map((ring) => {
-            return `<path data-fib-overlay="true" d="${ring.path}" fill="none" stroke="#f97316" stroke-width="1.2" stroke-opacity="${ring.strokeOpacity}" stroke-dasharray="6 4" pointer-events="visibleStroke" />`;
+            const radius = Math.hypot(circleGeometry.ex - circleGeometry.cx, circleGeometry.ey - circleGeometry.cy) * ring.ratio;
+            if (!Number.isFinite(radius) || radius <= 0) return "";
+            return `<circle cx="${circleGeometry.cx}" cy="${circleGeometry.cy}" r="${radius}" fill="none" stroke="#f97316" stroke-width="1.2" stroke-opacity="${ring.strokeOpacity}" stroke-dasharray="6 4" />`;
           })
           .join("")
       : "";
 
     const circleControls = circleGeometry
       ? `
-      <circle data-fib-overlay="true" cx="${circleGeometry.cx}" cy="${circleGeometry.cy}" r="4" fill="#22c55e" pointer-events="visibleFill" />
-      <circle data-fib-overlay="true" cx="${circleGeometry.ex}" cy="${circleGeometry.ey}" r="4" fill="#f97316" pointer-events="visibleFill" />
-      <line data-fib-overlay="true" x1="${circleGeometry.cx}" y1="${circleGeometry.cy}" x2="${circleGeometry.ex}" y2="${circleGeometry.ey}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" pointer-events="visibleStroke" />
+      <circle cx="${circleGeometry.cx}" cy="${circleGeometry.cy}" r="4" fill="#22c55e" />
+      <circle cx="${circleGeometry.ex}" cy="${circleGeometry.ey}" r="4" fill="#f97316" />
+      <line x1="${circleGeometry.cx}" y1="${circleGeometry.cy}" x2="${circleGeometry.ex}" y2="${circleGeometry.ey}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" />
     `
       : "";
 
@@ -1731,6 +1734,11 @@ export function BitcoinChart({
 
     const handleContainerMouseDown = (event: MouseEvent) => {
       if (event.button !== 0) return;
+      
+      // If point-picking is in progress, do not intercept mousedown for overlay selection/drag.
+      // This allows the click to reach the lightweight-charts canvas.
+      if (!overlaySelectionEnabledRef.current) return;
+
       const rect = container.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
