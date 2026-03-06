@@ -13,14 +13,15 @@ const fibonacciCircleSchema = {
   properties: {
     center: { type: "object", title: "center" },
     edge: { type: "object", title: "edge" },
-    ratios: { type: "array", title: "ratios", default: [0.236, 0.382, 0.5, 0.618, 1.0, 1.618] },
+    ratios: { type: "array", title: "ratios", default: [0.382, 0.5, 0.618, 1.0, 1.618] },
   },
 };
 
 const fibonacciChannelSchema = {
   properties: {
-    start: { type: "object", title: "start" },
-    end: { type: "object", title: "end" },
+    a: { type: "object", title: "a" },
+    b: { type: "object", title: "b" },
+    c: { type: "object", title: "c" },
     ratios: { type: "array", title: "ratios", default: [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0] },
   },
 };

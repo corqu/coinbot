@@ -40,6 +40,7 @@ type CandleSummary = {
 };
 
 type DrawingToolKind = "trendline" | "fibonacci" | "gann" | "pitchfork";
+type FibonacciToolVariant = "channel" | "circle";
 
 type UserLineDrawing = {
   id: string;
@@ -80,9 +81,9 @@ export type FibonacciCircleOverlay = {
 };
 
 export type FibonacciChannelOverlay = {
-  start?: ChartPickedPoint | null;
-  end?: ChartPickedPoint | null;
-  previewEnd?: ChartPickedPoint | null;
+  a?: ChartPickedPoint | null;
+  b?: ChartPickedPoint | null;
+  c?: ChartPickedPoint | null;
   ratios?: number[];
 };
 
@@ -93,8 +94,8 @@ type BitcoinChartProps = {
   onPointPick?: (point: ChartPickedPoint) => void;
   onHoverPointChange?: (point: ChartPickedPoint | null) => void;
   onFibonacciPointDrag?: (target: "center" | "edge", point: ChartPickedPoint) => void;
-  onFibonacciChannelPointDrag?: (target: "start" | "end", point: ChartPickedPoint) => void;
-  onFibonacciChannelMove?: (next: { start: ChartPickedPoint; end: ChartPickedPoint }) => void;
+  onFibonacciChannelPointDrag?: (target: "a" | "b" | "c", point: ChartPickedPoint) => void;
+  onFibonacciChannelMove?: (next: { a: ChartPickedPoint; b: ChartPickedPoint; c: ChartPickedPoint }) => void;
   fibonacciCircleOverlay?: FibonacciCircleOverlay;
   fibonacciChannelOverlay?: FibonacciChannelOverlay;
   onFibonacciOverlayClick?: () => void;
@@ -103,9 +104,10 @@ type BitcoinChartProps = {
   onFibonacciDelete?: () => void;
 };
 
-const FIB_CIRCLE_DEFAULT_RATIOS = [0.236, 0.382, 0.5, 0.618, 1.0, 1.618, 2.0, 2.618];
+const FIB_CIRCLE_DEFAULT_RATIOS = [0.382, 0.5, 0.618, 1.0, 1.618];
+const FIB_CIRCLE_DEFAULT_EXT_RATIOS = [2.0, 2.618, 4.236];
 const FIB_CHANNEL_DEFAULT_RATIOS = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
-const FIB_CHANNEL_DEFAULT_EXT_RATIOS = [0.618, 1.0, 1.272, 1.618, 2.0, 2.618];
+const FIB_CHANNEL_DEFAULT_EXT_RATIOS = [1.272, 1.618, 2.0];
 const MAIN_CHART_HEIGHT = 330;
 const INDICATOR_PANEL_HEIGHT = 130;
 const TOOL_RAIL_WIDTH = 40;
@@ -116,7 +118,7 @@ const DRAWING_TOOLS = [
   {
     id: "fibonacci",
     label: "피보나치",
-    children: ["채널", "되돌림", "확장", "스피드팬"],
+    children: ["채널", "서클", "되돌림", "확장", "스피드팬"],
   },
   {
     id: "gann",
@@ -169,6 +171,10 @@ function toPct(base: number, value: number): string {
 
 function formatPrice(value: number): string {
   return value.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
+}
+
+function formatFibRatio(value: number): string {
+  return Number(value.toFixed(3)).toString();
 }
 
 function asCandleSummary(value: unknown): CandleSummary | null {
@@ -337,7 +343,18 @@ function tsToLogicalIndex(candles: CandlestickData[], ts: number): number | null
 function pointTsToXCoordinate(chart: IChartApi, candles: CandlestickData[], ts: number): number | null {
   const logical = tsToLogicalIndex(candles, ts);
   if (logical === null) return null;
-  return logicalToCoordinateSafe(chart, logical);
+  const direct = logicalToCoordinateSafe(chart, logical);
+  if (direct !== null) return direct;
+
+  if (candles.length < 2) return null;
+  const lastIndex = candles.length - 1;
+  const prevIndex = candles.length - 2;
+  const lastX = chart.timeScale().timeToCoordinate(candles[lastIndex]?.time);
+  const prevX = chart.timeScale().timeToCoordinate(candles[prevIndex]?.time);
+  if (lastX === null || prevX === null) return null;
+  const spacing = lastX - prevX;
+  if (!Number.isFinite(spacing) || Math.abs(spacing) < 0.0001) return null;
+  return lastX + (logical - lastIndex) * spacing;
 }
 
 function renderToolIcon(toolId: string) {
@@ -386,6 +403,11 @@ function drawingColor(tool: DrawingToolKind): string {
   return "#22c55e";
 }
 
+function resolveFibonacciToolVariant(selectedTool: string): FibonacciToolVariant {
+  if (selectedTool.endsWith(":서클")) return "circle";
+  return "channel";
+}
+
 export function BitcoinChart({
   enableDrawingTools = false,
   overlays = [],
@@ -418,9 +440,11 @@ export function BitcoinChart({
     onFibonacciPointDrag,
   );
   const onFibonacciChannelPointDragRef = useRef<
-    ((target: "start" | "end", point: ChartPickedPoint) => void) | undefined
+    ((target: "a" | "b" | "c", point: ChartPickedPoint) => void) | undefined
   >(onFibonacciChannelPointDrag);
-  const onFibonacciChannelMoveRef = useRef<((next: { start: ChartPickedPoint; end: ChartPickedPoint }) => void) | undefined>(
+  const onFibonacciChannelMoveRef = useRef<
+    ((next: { a: ChartPickedPoint; b: ChartPickedPoint; c: ChartPickedPoint }) => void) | undefined
+  >(
     onFibonacciChannelMove,
   );
   const onFibonacciOverlayClickRef = useRef<(() => void) | undefined>(onFibonacciOverlayClick);
@@ -436,8 +460,10 @@ export function BitcoinChart({
   const fibDragTargetRef = useRef<
     | "center"
     | "edge"
-    | "channel-start"
-    | "channel-end"
+    | "circle-move"
+    | "channel-a"
+    | "channel-b"
+    | "channel-c"
     | "channel-move"
     | "drawing-start"
     | "drawing-end"
@@ -447,10 +473,23 @@ export function BitcoinChart({
   const fibDragMovedRef = useRef<boolean>(false);
   const channelMoveSessionRef = useRef<
     | {
-        startTs: number;
-        endTs: number;
-        startPrice: number;
-        endPrice: number;
+        aTs: number;
+        bTs: number;
+        cTs: number;
+        aPrice: number;
+        bPrice: number;
+        cPrice: number;
+        grabTs: number;
+        grabPrice: number;
+      }
+    | null
+  >(null);
+  const circleMoveSessionRef = useRef<
+    | {
+        centerTs: number;
+        edgeTs: number;
+        centerPrice: number;
+        edgePrice: number;
         grabTs: number;
         grabPrice: number;
       }
@@ -470,8 +509,12 @@ export function BitcoinChart({
   const [pendingDrawingStart, setPendingDrawingStart] = useState<ChartPickedPoint | null>(null);
   const [pendingDrawingHover, setPendingDrawingHover] = useState<ChartPickedPoint | null>(null);
   const [toolFibonacciOverlay, setToolFibonacciOverlay] = useState<FibonacciChannelOverlay | undefined>(undefined);
+  const [toolFibonacciCircleOverlay, setToolFibonacciCircleOverlay] = useState<FibonacciCircleOverlay | undefined>(
+    undefined,
+  );
   const activeToolKind = enableDrawingTools ? toDrawingToolKind(selectedTool) : null;
   const effectiveFibonacciChannelOverlay = toolFibonacciOverlay ?? fibonacciChannelOverlay;
+  const effectiveFibonacciCircleOverlay = toolFibonacciCircleOverlay ?? fibonacciCircleOverlay;
   const activeToolKindRef = useRef<DrawingToolKind | null>(activeToolKind);
   const selectedToolRef = useRef<string>(selectedTool);
   const userDrawingsRef = useRef<UserLineDrawing[]>(userDrawings);
@@ -487,6 +530,8 @@ export function BitcoinChart({
   const pendingDrawingStartRef = useRef<ChartPickedPoint | null>(pendingDrawingStart);
   const pendingDrawingHoverRef = useRef<ChartPickedPoint | null>(pendingDrawingHover);
   const selectedToolFibonacciRef = useRef<boolean>(selectedToolFibonacci);
+  const toolFibonacciOverlayRef = useRef<FibonacciChannelOverlay | undefined>(toolFibonacciOverlay);
+  const toolFibonacciCircleOverlayRef = useRef<FibonacciCircleOverlay | undefined>(toolFibonacciCircleOverlay);
 
   useEffect(() => {
     setPendingDrawingStart(null);
@@ -515,6 +560,14 @@ export function BitcoinChart({
   useEffect(() => {
     selectedToolFibonacciRef.current = selectedToolFibonacci;
   }, [selectedToolFibonacci]);
+
+  useEffect(() => {
+    toolFibonacciOverlayRef.current = toolFibonacciOverlay;
+  }, [toolFibonacciOverlay]);
+
+  useEffect(() => {
+    toolFibonacciCircleOverlayRef.current = toolFibonacciCircleOverlay;
+  }, [toolFibonacciCircleOverlay]);
 
   useEffect(() => {
     pendingDrawingStartRef.current = pendingDrawingStart;
@@ -568,75 +621,100 @@ export function BitcoinChart({
     const candles = candlesRef.current;
     if (!chart || !series || !overlay?.center || !overlay?.edge) return null;
     if (overlay.center.ts === null || overlay.edge.ts === null) return null;
-    if (candles.length < 2) return null;
+    if (candles.length === 0) return null;
 
     const center = overlay.center;
     const edge = overlay.edge;
     const centerTs = center.ts;
     const edgeTs = edge.ts;
     if (centerTs === null || edgeTs === null) return null;
-    const centerIndex = nearestCandleIndexByTs(candles, centerTs);
-    const edgeIndex = nearestCandleIndexByTs(candles, edgeTs);
-    if (centerIndex === null || edgeIndex === null) return null;
 
-    const centerTime = candles[centerIndex]?.time;
-    const edgeTime = candles[edgeIndex]?.time;
-    if (!centerTime || !edgeTime) return null;
-
-    const cx = chart.timeScale().timeToCoordinate(centerTime);
+    const cx = pointTsToXCoordinate(chart, candles, centerTs);
     const cy = series.priceToCoordinate(center.price);
-    const ex = chart.timeScale().timeToCoordinate(edgeTime);
+    const ex = pointTsToXCoordinate(chart, candles, edgeTs);
     const ey = series.priceToCoordinate(edge.price);
     if (cx === null || cy === null || ex === null || ey === null) return null;
 
-    const baseDx = edgeIndex - centerIndex;
-    const baseDy = edge.price - center.price;
-    if (!Number.isFinite(baseDx) || !Number.isFinite(baseDy)) return null;
-    if (Math.abs(baseDx) < 1 || Math.abs(baseDy) < 1e-9) return null;
+    const dTsRaw = edgeTs - centerTs;
+    const dPriceRaw = edge.price - center.price;
+    const intervalSec = estimateBarIntervalSec(candles);
+    const priceStep = Math.max(Math.abs(center.price) * 0.001, 1);
 
-    const ratios =
+    let sx = Math.abs(dTsRaw) > 1e-9 ? (ex - cx) / dTsRaw : NaN;
+    if (!Number.isFinite(sx) || Math.abs(sx) < 1e-9) {
+      const tx = pointTsToXCoordinate(chart, candles, centerTs + intervalSec);
+      sx = tx === null ? NaN : (tx - cx) / intervalSec;
+    }
+
+    let sy = Math.abs(dPriceRaw) > 1e-9 ? (ey - cy) / dPriceRaw : NaN;
+    if (!Number.isFinite(sy) || Math.abs(sy) < 1e-9) {
+      const py = series.priceToCoordinate(center.price + priceStep);
+      sy = py === null ? NaN : (py - cy) / priceStep;
+    }
+
+    if (!Number.isFinite(sx) || !Number.isFinite(sy) || Math.abs(sx) < 1e-9 || Math.abs(sy) < 1e-9) return null;
+    const exNorm = dTsRaw * sx;
+    const eyNorm = dPriceRaw * sy;
+    if (Math.hypot(exNorm, eyNorm) < 1e-6) return null;
+
+    const baseRatios =
       overlay.ratios && overlay.ratios.length > 0
         ? overlay.ratios.filter((ratio) => Number.isFinite(ratio) && ratio > 0)
         : FIB_CIRCLE_DEFAULT_RATIOS;
-    if (ratios.length === 0) return null;
+    if (baseRatios.length === 0) return null;
+    const extRatios = FIB_CIRCLE_DEFAULT_EXT_RATIOS.filter(
+      (ratio) => !baseRatios.some((baseRatio) => Math.abs(baseRatio - ratio) < 1e-9),
+    );
 
-    const absBaseDx = Math.abs(baseDx);
-    const absBaseDy = Math.abs(baseDy);
-    const rings = ratios
-      .map((ratio, index) => {
-        const minIndex = Math.max(0, Math.ceil(centerIndex - absBaseDx * ratio));
-        const maxIndex = Math.min(candles.length - 1, Math.floor(centerIndex + absBaseDx * ratio));
-        if (maxIndex - minIndex < 1) return null;
+    const toRingPoints = (ratio: number): ScreenPoint[] => {
+      const points: ScreenPoint[] = [];
+      const segments = 120;
+      for (let i = 0; i <= segments; i += 1) {
+        const theta = (i / segments) * Math.PI * 2;
+        const nx = exNorm * Math.cos(theta) - eyNorm * Math.sin(theta);
+        const ny = eyNorm * Math.cos(theta) + exNorm * Math.sin(theta);
+        const ts = centerTs + (ratio * nx) / sx;
+        const price = center.price + (ratio * ny) / sy;
+        const x = pointTsToXCoordinate(chart, candles, ts);
+        const y = series.priceToCoordinate(price);
+        if (x === null || y === null) continue;
+        points.push({ x, y });
+      }
+      return points;
+    };
 
-        const upper: ScreenPoint[] = [];
-        const lower: ScreenPoint[] = [];
-        for (let i = minIndex; i <= maxIndex; i += 1) {
-          const normX = (i - centerIndex) / baseDx;
-          const inside = ratio * ratio - normX * normX;
-          if (inside < 0) continue;
-          const yOffset = absBaseDy * Math.sqrt(inside);
-          const x = chart.timeScale().timeToCoordinate(candles[i].time);
-          if (x === null) continue;
-          const upperY = series.priceToCoordinate(center.price + yOffset);
-          const lowerY = series.priceToCoordinate(center.price - yOffset);
-          if (upperY === null || lowerY === null) continue;
-          upper.push({ x, y: upperY });
-          lower.push({ x, y: lowerY });
-        }
+    const toRing = (ratio: number, opacity: number, external = false) => {
+      const points = toRingPoints(ratio);
+      if (points.length < 3) return null;
+      return {
+        ratio,
+        points,
+        path: pointsToPath(points),
+        strokeOpacity: opacity,
+        external,
+      };
+    };
 
-        if (upper.length < 2 || lower.length < 2) return null;
-        const ringPoints = [...upper, ...lower.reverse(), upper[0]];
-        const strokeOpacity = Math.max(0.2, 0.85 - index * 0.08);
-        return {
-          points: ringPoints,
-          path: pointsToPath(ringPoints),
-          strokeOpacity,
-        };
-      })
-      .filter((ring): ring is { points: ScreenPoint[]; path: string; strokeOpacity: number } => ring !== null);
+    const rings = baseRatios
+      .map((ratio, index) => toRing(ratio, Math.max(0.2, 0.85 - index * 0.08), ratio > 1))
+      .filter(
+        (
+          ring,
+        ): ring is { ratio: number; points: ScreenPoint[]; path: string; strokeOpacity: number; external: boolean } =>
+          ring !== null,
+      );
 
-    if (rings.length === 0) return null;
-    return { cx, cy, ex, ey, rings };
+    const extRings = extRatios
+      .map((ratio, index) => toRing(ratio, Math.max(0.2, 0.7 - index * 0.08), true))
+      .filter(
+        (
+          ring,
+        ): ring is { ratio: number; points: ScreenPoint[]; path: string; strokeOpacity: number; external: boolean } =>
+          ring !== null,
+      );
+
+    if (rings.length === 0 && extRings.length === 0) return null;
+    return { cx, cy, ex, ey, rings, extRings };
   }, []);
 
   const computeFibonacciChannelScreenGeometry = useCallback(() => {
@@ -644,174 +722,144 @@ export function BitcoinChart({
     const series = seriesRef.current;
     const overlay = fibonacciChannelRef.current;
     const candles = candlesRef.current;
-    if (!chart || !series || !overlay?.start) return null;
-    if (candles.length < 2) return null;
+    const a = overlay?.a;
+    const b = overlay?.b;
+    const c = overlay?.c;
+    if (!chart || !series || !a || a.ts === null) return null;
 
-    const start = overlay.start;
-    const end = overlay.end ?? overlay.previewEnd;
-    if (!end) {
-      const startIndexOnly = start.ts === null ? null : nearestCandleIndexByTs(candles, start.ts);
-      if (startIndexOnly === null) return null;
-      const startTimeOnly = candles[startIndexOnly]?.time;
-      if (!startTimeOnly) return null;
-      const sxOnly = chart.timeScale().timeToCoordinate(startTimeOnly);
-      const syOnly = series.priceToCoordinate(start.price);
-      if (sxOnly === null || syOnly === null) return null;
+    const toScreen = (point: { ts: number; price: number }): ScreenPoint | null => {
+      const x = pointTsToXCoordinate(chart, candles, point.ts);
+      const y = series.priceToCoordinate(point.price);
+      if (x === null || y === null) return null;
+      return { x, y };
+    };
+
+    const aPoint = { ts: a.ts, price: a.price };
+    const aScreen = toScreen(aPoint);
+    if (!aScreen) return null;
+
+    if (!b || b.ts === null) {
       return {
-        sx: sxOnly,
-        sy: syOnly,
-        ex: null,
-        ey: null,
-        bands: [],
-        extBands: [],
-        leftX: sxOnly,
-        rightX: sxOnly,
-        extensionRightX: sxOnly,
-        y0: syOnly,
-        y1: syOnly,
+        ax: aScreen.x,
+        ay: aScreen.y,
+        bx: null,
+        by: null,
+        cx: null,
+        cy: null,
+        basePoints: [] as ScreenPoint[],
+        leftBoundaryPoints: [] as ScreenPoint[],
+        rightBoundaryPoints: [] as ScreenPoint[],
+        basePath: "",
+        leftBoundaryPath: "",
+        rightBoundaryPath: "",
+        cGuidePath: "",
+        bands: [] as Array<{ ratio: number; points: ScreenPoint[]; path: string; strokeOpacity: number }>,
+        extBands: [] as Array<{ ratio: number; points: ScreenPoint[]; path: string; strokeOpacity: number }>,
         preview: true,
       };
     }
 
-    const startTs = start.ts;
-    const endTs = end.ts;
-    if (startTs === null || endTs === null) return null;
-    const startLogical = tsToLogicalIndex(candles, startTs);
-    const endLogical = tsToLogicalIndex(candles, endTs);
-    if (startLogical === null || endLogical === null) return null;
-    if (Math.abs(startLogical - endLogical) < 1e-6) return null;
+    const bPoint = { ts: b.ts, price: b.price };
+    const bScreen = toScreen(bPoint);
+    if (!bScreen) return null;
+    if (Math.abs(bPoint.ts - aPoint.ts) < 1e-6) return null;
 
-    const sx = logicalToCoordinateSafe(chart, startLogical);
-    const sy = series.priceToCoordinate(start.price);
-    const ex = logicalToCoordinateSafe(chart, endLogical);
-    const ey = series.priceToCoordinate(end.price);
-    if (sx === null || sy === null || ex === null || ey === null) return null;
+    const basePoints = [aScreen, bScreen];
+    const basePath = pointsToPath(basePoints);
 
-    const leftLogical = Math.min(startLogical, endLogical);
-    const rightLogical = Math.max(startLogical, endLogical);
-    const leftX = logicalToCoordinateSafe(chart, leftLogical);
-    const rightX = logicalToCoordinateSafe(chart, rightLogical);
-    if (leftX === null || rightX === null) return null;
-    const extensionRightX = rightX;
+    if (!c || c.ts === null) {
+      return {
+        ax: aScreen.x,
+        ay: aScreen.y,
+        bx: bScreen.x,
+        by: bScreen.y,
+        cx: null,
+        cy: null,
+        basePoints,
+        leftBoundaryPoints: [] as ScreenPoint[],
+        rightBoundaryPoints: [] as ScreenPoint[],
+        basePath,
+        leftBoundaryPath: "",
+        rightBoundaryPath: "",
+        cGuidePath: "",
+        bands: [] as Array<{ ratio: number; points: ScreenPoint[]; path: string; strokeOpacity: number }>,
+        extBands: [] as Array<{ ratio: number; points: ScreenPoint[]; path: string; strokeOpacity: number }>,
+        preview: true,
+      };
+    }
 
-    const price0 = start.price;
-    const price1 = end.price;
-    if (!Number.isFinite(price0) || !Number.isFinite(price1)) return null;
-    const baseHeight = Math.abs(price1 - price0);
+    const cPoint = { ts: c.ts, price: c.price };
+    const cScreen = toScreen(cPoint);
+    if (!cScreen) return null;
+
+    const sideX = cScreen.x - aScreen.x;
+    const sideY = cScreen.y - aScreen.y;
+    const dScreen = { x: bScreen.x + sideX, y: bScreen.y + sideY };
+
+    const leftBoundaryPoints = [aScreen, cScreen];
+    const rightBoundaryPoints = [bScreen, dScreen];
 
     const ratios =
       overlay.ratios && overlay.ratios.length > 0
         ? overlay.ratios.filter((ratio) => Number.isFinite(ratio) && ratio >= 0)
         : FIB_CHANNEL_DEFAULT_RATIOS;
-    if (ratios.length === 0) return null;
+    const extRatios = FIB_CHANNEL_DEFAULT_EXT_RATIOS.filter(
+      (ratio) => !ratios.some((baseRatio) => Math.abs(baseRatio - ratio) < 1e-9),
+    );
+
+    const toBandLine = (ratio: number, opacity: number) => {
+      const points: ScreenPoint[] = [
+        { x: aScreen.x + sideX * ratio, y: aScreen.y + sideY * ratio },
+        { x: bScreen.x + sideX * ratio, y: bScreen.y + sideY * ratio },
+      ];
+      return {
+        ratio,
+        points,
+        path: pointsToPath(points),
+        strokeOpacity: opacity,
+      };
+    };
 
     const bands = ratios
-      .map((ratio, idx) => {
-        // ratio 0 ~ 1 levels are split between start/end prices.
-        const yPrice = price0 + (price1 - price0) * ratio;
-        const y = series.priceToCoordinate(yPrice);
-        if (y === null) return null;
-        const line: ScreenPoint[] = [
-          { x: leftX, y },
-          { x: rightX, y },
-        ];
-        const extension: ScreenPoint[] =
-          extensionRightX > rightX + 1
-            ? [
-                { x: rightX, y },
-                { x: extensionRightX, y },
-              ]
-            : [];
-
-        return {
-          ratio,
-          points: line,
-          extensionPoints: extension,
-          path: pointsToPath(line),
-          extensionPath: pointsToPath(extension),
-          strokeOpacity: Math.max(0.2, 0.9 - idx * 0.08),
-        };
-      })
+      .map((ratio, idx) => toBandLine(ratio, Math.max(0.2, 0.9 - idx * 0.08)))
       .filter(
-        (
-          band,
-        ): band is {
-          ratio: number;
-          points: ScreenPoint[];
-          extensionPoints: ScreenPoint[];
-          path: string;
-          extensionPath: string;
-          strokeOpacity: number;
-        } => band !== null,
+        (band): band is { ratio: number; points: ScreenPoint[]; path: string; strokeOpacity: number } => band !== null,
       );
 
-    if (bands.length === 0) return null;
+    const extBands = extRatios
+      .map((ratio, idx) => toBandLine(ratio, Math.max(0.2, 0.75 - idx * 0.08)))
+      .filter(
+        (band): band is { ratio: number; points: ScreenPoint[]; path: string; strokeOpacity: number } => band !== null,
+      );
 
-    const y0 = series.priceToCoordinate(price0);
-    const y1 = series.priceToCoordinate(price1);
-    if (y0 === null || y1 === null) return null;
-
-    const topPrice = Math.max(price0, price1);
-    const extBands =
-      baseHeight > 0
-        ? FIB_CHANNEL_DEFAULT_EXT_RATIOS.map((ratio, idx) => {
-            const yPrice = topPrice + baseHeight * ratio;
-            const y = series.priceToCoordinate(yPrice);
-            if (y === null) return null;
-            const line: ScreenPoint[] = [
-              { x: leftX, y },
-              { x: rightX, y },
-            ];
-            const extension: ScreenPoint[] =
-              extensionRightX > rightX + 1
-                ? [
-                    { x: rightX, y },
-                    { x: extensionRightX, y },
-                  ]
-                : [];
-            return {
-              ratio,
-              points: line,
-              extensionPoints: extension,
-              path: pointsToPath(line),
-              extensionPath: pointsToPath(extension),
-              strokeOpacity: Math.max(0.2, 0.75 - idx * 0.08),
-            };
-          }).filter(
-            (
-              band,
-            ): band is {
-              ratio: number;
-              points: ScreenPoint[];
-              extensionPoints: ScreenPoint[];
-              path: string;
-              extensionPath: string;
-              strokeOpacity: number;
-            } => band !== null,
-          )
-        : [];
+    const baseSlope = (bPoint.price - aPoint.price) / (bPoint.ts - aPoint.ts);
+    const baseAtCTs = aPoint.price + baseSlope * (cPoint.ts - aPoint.ts);
+    const cGuideStart = toScreen({ ts: cPoint.ts, price: baseAtCTs });
+    const cGuidePath =
+      cGuideStart && cScreen
+        ? pointsToPath([
+            cGuideStart,
+            cScreen,
+          ])
+        : "";
 
     return {
-      sx,
-      sy,
-      ex,
-      ey,
+      ax: aScreen.x,
+      ay: aScreen.y,
+      bx: bScreen.x,
+      by: bScreen.y,
+      cx: cScreen.x,
+      cy: cScreen.y,
+      basePoints,
+      leftBoundaryPoints,
+      rightBoundaryPoints,
+      basePath,
+      leftBoundaryPath: pointsToPath(leftBoundaryPoints),
+      rightBoundaryPath: pointsToPath(rightBoundaryPoints),
+      cGuidePath,
       bands,
       extBands,
-      leftX,
-      rightX,
-      extensionRightX,
-      y0,
-      y1,
-      leftBorderPath: pointsToPath([
-        { x: leftX, y: y0 },
-        { x: leftX, y: y1 },
-      ]),
-      rightBorderPath: pointsToPath([
-        { x: rightX, y: y0 },
-        { x: rightX, y: y1 },
-      ]),
-      preview: overlay.end ? false : true,
+      preview: false,
     };
   }, []);
 
@@ -835,7 +883,17 @@ export function BitcoinChart({
     const circlePaths = circleGeometry
       ? circleGeometry.rings
           .map((ring) => {
-            return `<path data-fib-overlay="true" d="${ring.path}" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-opacity="${ring.strokeOpacity}" pointer-events="visibleStroke" />`;
+            const color = ring.external ? "#f97316" : "#38bdf8";
+            const dash = ring.external ? ' stroke-dasharray="6 4"' : "";
+            return `<path data-fib-overlay="true" d="${ring.path}" fill="none" stroke="${color}" stroke-width="1.5" stroke-opacity="${ring.strokeOpacity}"${dash} pointer-events="visibleStroke" />`;
+          })
+          .join("")
+      : "";
+
+    const circleExtPaths = circleGeometry
+      ? circleGeometry.extRings
+          .map((ring) => {
+            return `<path data-fib-overlay="true" d="${ring.path}" fill="none" stroke="#f97316" stroke-width="1.2" stroke-opacity="${ring.strokeOpacity}" stroke-dasharray="6 4" pointer-events="visibleStroke" />`;
           })
           .join("")
       : "";
@@ -855,13 +913,7 @@ export function BitcoinChart({
             const color = isBoundary ? "#f8fafc" : "#38bdf8";
             const widthStroke = isBoundary ? 1.8 : 1.2;
             const dash = isBoundary ? "" : ' stroke-dasharray="6 4"';
-            const extension = band.extensionPath
-              ? `<path d="${band.extensionPath}" fill="none" stroke="${color}" stroke-width="${Math.max(
-                  1,
-                  widthStroke - 0.2,
-                )}" stroke-opacity="${Math.max(0.18, band.strokeOpacity - 0.15)}"${dash} />`
-              : "";
-            return `<path d="${band.path}" fill="none" stroke="${color}" stroke-width="${widthStroke}" stroke-opacity="${band.strokeOpacity}"${dash} />${extension}`;
+            return `<path d="${band.path}" fill="none" stroke="${color}" stroke-width="${widthStroke}" stroke-opacity="${band.strokeOpacity}"${dash} />`;
           })
           .join("")
       : "";
@@ -870,24 +922,49 @@ export function BitcoinChart({
       ? channelGeometry.extBands
           .map((band) => {
             const dash = channelGeometry.preview ? ' stroke-dasharray="4 4"' : ' stroke-dasharray="6 4"';
-            const extension = band.extensionPath
-              ? `<path d="${band.extensionPath}" fill="none" stroke="#f97316" stroke-width="1" stroke-opacity="${Math.max(
-                  0.16,
-                  band.strokeOpacity - 0.15,
-                )}" stroke-dasharray="6 4" />`
-              : "";
-            return `<path d="${band.path}" fill="none" stroke="#f97316" stroke-width="1.1" stroke-opacity="${band.strokeOpacity}"${dash} />${extension}`;
+            return `<path d="${band.path}" fill="none" stroke="#f97316" stroke-width="1.1" stroke-opacity="${band.strokeOpacity}"${dash} />`;
+          })
+          .join("")
+      : "";
+
+    const channelLabels = channelGeometry
+      ? [...channelGeometry.bands, ...channelGeometry.extBands]
+          .map((band) => {
+            const p1 = band.points[0];
+            const p2 = band.points[1];
+            if (!p1 || !p2) return "";
+            const left = p1.x <= p2.x ? p1 : p2;
+            const right = p1.x <= p2.x ? p2 : p1;
+            const dx = right.x - left.x;
+            const dy = right.y - left.y;
+            const len = Math.hypot(dx, dy);
+            if (len < 1e-6) return "";
+            const ux = dx / len;
+            const uy = dy / len;
+            const labelX = left.x - ux * 10;
+            const labelY = left.y - uy * 10;
+            const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+            return `<text x="${labelX}" y="${labelY}" transform="rotate(${angle} ${labelX} ${labelY})" text-anchor="end" dominant-baseline="middle" fill="#cbd5e1" font-size="10" font-weight="500" paint-order="stroke" stroke="#020617" stroke-width="2">${formatFibRatio(
+              band.ratio,
+            )}</text>`;
           })
           .join("")
       : "";
 
     const channelControls = channelGeometry
       ? `
-      <circle cx="${channelGeometry.sx}" cy="${channelGeometry.sy}" r="4" fill="#22c55e" />
+      <path d="${channelGeometry.basePath}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" fill="none" />
+      <path d="${channelGeometry.leftBoundaryPath}" stroke="#64748b" stroke-width="1" stroke-opacity="0.8" fill="none" />
+      <path d="${channelGeometry.rightBoundaryPath}" stroke="#64748b" stroke-width="1" stroke-opacity="0.8" fill="none" />
+      <circle cx="${channelGeometry.ax}" cy="${channelGeometry.ay}" r="4" fill="#22c55e" />
       ${
-        channelGeometry.ex !== null && channelGeometry.ey !== null
-          ? `<circle cx="${channelGeometry.ex}" cy="${channelGeometry.ey}" r="4" fill="#f97316" />
-      <line x1="${channelGeometry.sx}" y1="${channelGeometry.sy}" x2="${channelGeometry.ex}" y2="${channelGeometry.ey}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" />`
+        channelGeometry.bx !== null && channelGeometry.by !== null
+          ? `<circle cx="${channelGeometry.bx}" cy="${channelGeometry.by}" r="4" fill="#f97316" />`
+          : ""
+      }
+      ${
+        channelGeometry.cx !== null && channelGeometry.cy !== null
+          ? `<circle cx="${channelGeometry.cx}" cy="${channelGeometry.cy}" r="4" fill="#38bdf8" />`
           : ""
       }
     `
@@ -993,10 +1070,12 @@ export function BitcoinChart({
     const nextMarkup = `
       ${channelPaths}
       ${channelExtPaths}
+      ${channelLabels}
       ${linePaths}
       ${selectedDrawingHandles}
       ${pendingLinePath}
       ${circlePaths}
+      ${circleExtPaths}
       ${channelControls}
       ${circleControls}
     `;
@@ -1021,8 +1100,15 @@ export function BitcoinChart({
 
   const getFibonacciChannelControlPoints = useCallback(() => {
     const geometry = computeFibonacciChannelScreenGeometry();
-    if (!geometry || geometry.ex === null || geometry.ey === null) return null;
-    return { sx: geometry.sx, sy: geometry.sy, ex: geometry.ex, ey: geometry.ey };
+    if (!geometry) return null;
+    return {
+      ax: geometry.ax,
+      ay: geometry.ay,
+      bx: geometry.bx,
+      by: geometry.by,
+      cx: geometry.cx,
+      cy: geometry.cy,
+    };
   }, [computeFibonacciChannelScreenGeometry]);
 
   const pickFibonacciHandle = useCallback((x: number, y: number): "center" | "edge" | null => {
@@ -1031,19 +1117,35 @@ export function BitcoinChart({
 
     const dCenter = Math.hypot(x - control.cx, y - control.cy);
     const dEdge = Math.hypot(x - control.ex, y - control.ey);
-    const hitRadius = 10;
+    const hitRadius = 14;
     if (dCenter > hitRadius && dEdge > hitRadius) return null;
     return dCenter <= dEdge ? "center" : "edge";
   }, [getFibonacciControlPoints]);
 
-  const pickFibonacciChannelHandle = useCallback((x: number, y: number): "start" | "end" | null => {
+  const pickFibonacciChannelHandle = useCallback((x: number, y: number): "a" | "b" | "c" | null => {
     const control = getFibonacciChannelControlPoints();
     if (!control) return null;
-    const dStart = Math.hypot(x - control.sx, y - control.sy);
-    const dEnd = Math.hypot(x - control.ex, y - control.ey);
+    const distances: Array<{ key: "a" | "b" | "c"; value: number }> = [
+      { key: "a", value: Math.hypot(x - control.ax, y - control.ay) },
+      {
+        key: "b",
+        value:
+          control.bx === null || control.by === null
+            ? Number.POSITIVE_INFINITY
+            : Math.hypot(x - control.bx, y - control.by),
+      },
+      {
+        key: "c",
+        value:
+          control.cx === null || control.cy === null
+            ? Number.POSITIVE_INFINITY
+            : Math.hypot(x - control.cx, y - control.cy),
+      },
+    ];
     const hitRadius = 10;
-    if (dStart > hitRadius && dEnd > hitRadius) return null;
-    return dStart <= dEnd ? "start" : "end";
+    const nearest = distances.reduce((best, item) => (item.value < best.value ? item : best), distances[0]);
+    if (nearest.value > hitRadius) return null;
+    return nearest.key;
   }, [getFibonacciChannelControlPoints]);
 
   const toPickedPointFromCoordinate = useCallback((x: number, y: number): ChartPickedPoint | null => {
@@ -1075,7 +1177,7 @@ export function BitcoinChart({
     const dCenter = Math.hypot(x - cx, y - cy);
     const dEdge = Math.hypot(x - ex, y - ey);
     if (dCenter <= 8 || dEdge <= 8) return true;
-    const ringHit = geometry.rings.some((ring) => minDistanceToPolyline(ring.points, x, y) <= 6);
+    const ringHit = [...geometry.rings, ...geometry.extRings].some((ring) => minDistanceToPolyline(ring.points, x, y) <= 6);
     if (ringHit) return true;
 
     const vx = ex - cx;
@@ -1097,40 +1199,24 @@ export function BitcoinChart({
     const handle = pickFibonacciChannelHandle(x, y);
     if (handle) return true;
 
-    const xMin = Math.min(geometry.leftX, geometry.rightX);
-    const xMax = Math.max(geometry.leftX, geometry.rightX);
-    const yMin = Math.min(geometry.y0, geometry.y1);
-    const yMax = Math.max(geometry.y0, geometry.y1);
-    if (x >= xMin && x <= xMax && y >= yMin && y <= yMax) return true;
+    if (geometry.basePoints.length > 1 && minDistanceToPolyline(geometry.basePoints, x, y) <= 6) {
+      return true;
+    }
+    if (geometry.leftBoundaryPoints.length > 1 && minDistanceToPolyline(geometry.leftBoundaryPoints, x, y) <= 6) {
+      return true;
+    }
+    if (geometry.rightBoundaryPoints.length > 1 && minDistanceToPolyline(geometry.rightBoundaryPoints, x, y) <= 6) {
+      return true;
+    }
 
     const anyBandHit = [...geometry.bands, ...geometry.extBands].some(
-      (band) =>
-        minDistanceToPolyline(band.points, x, y) <= 6 ||
-        (band.extensionPoints.length > 1 && minDistanceToPolyline(band.extensionPoints, x, y) <= 6),
+      (band) => minDistanceToPolyline(band.points, x, y) <= 6,
     );
-    if (anyBandHit) return true;
-
-    const leftHit = minDistanceToPolyline(
-      [
-        { x: geometry.leftX, y: geometry.y0 },
-        { x: geometry.leftX, y: geometry.y1 },
-      ],
-      x,
-      y,
-    );
-    const rightHit = minDistanceToPolyline(
-      [
-        { x: geometry.rightX, y: geometry.y0 },
-        { x: geometry.rightX, y: geometry.y1 },
-      ],
-      x,
-      y,
-    );
-    return leftHit <= 6 || rightHit <= 6;
+    return anyBandHit;
   }, [computeFibonacciChannelScreenGeometry, pickFibonacciChannelHandle]);
 
   const computeMovedChannelPoints = useCallback(
-    (x: number, y: number): { start: ChartPickedPoint; end: ChartPickedPoint } | null => {
+    (x: number, y: number): { a: ChartPickedPoint; b: ChartPickedPoint; c: ChartPickedPoint } | null => {
       const session = channelMoveSessionRef.current;
       const series = seriesRef.current;
       if (!session || !series) return null;
@@ -1145,22 +1231,82 @@ export function BitcoinChart({
       const deltaPrice = rounded(currentPrice - session.grabPrice);
 
       return {
-        start: {
-          ts: Math.floor(session.startTs + deltaTs),
-          price: rounded(session.startPrice + deltaPrice),
+        a: {
+          ts: Math.floor(session.aTs + deltaTs),
+          price: rounded(session.aPrice + deltaPrice),
         },
-        end: {
-          ts: Math.floor(session.endTs + deltaTs),
-          price: rounded(session.endPrice + deltaPrice),
+        b: {
+          ts: Math.floor(session.bTs + deltaTs),
+          price: rounded(session.bPrice + deltaPrice),
+        },
+        c: {
+          ts: Math.floor(session.cTs + deltaTs),
+          price: rounded(session.cPrice + deltaPrice),
         },
       };
     },
     [],
   );
 
+  const computeMovedCirclePoints = useCallback(
+    (x: number, y: number): { center: ChartPickedPoint; edge: ChartPickedPoint } | null => {
+      const session = circleMoveSessionRef.current;
+      const series = seriesRef.current;
+      if (!session || !series) return null;
+      const candles = candlesRef.current;
+      const chart = chartRef.current;
+      if (!chart || candles.length === 0) return null;
+
+      const currentTs = inferTsFromCoordinate(chart, candles, x);
+      const currentPrice = series.coordinateToPrice(y);
+      if (currentTs === null || currentPrice === null || !Number.isFinite(currentPrice)) return null;
+      const deltaTs = currentTs - session.grabTs;
+      const deltaPrice = rounded(currentPrice - session.grabPrice);
+
+      return {
+        center: {
+          ts: Math.floor(session.centerTs + deltaTs),
+          price: rounded(session.centerPrice + deltaPrice),
+        },
+        edge: {
+          ts: Math.floor(session.edgeTs + deltaTs),
+          price: rounded(session.edgePrice + deltaPrice),
+        },
+      };
+    },
+    [],
+  );
+
+  const applyCirclePointUpdate = useCallback((target: "center" | "edge", point: ChartPickedPoint) => {
+    const isToolCircleActive = Boolean(toolFibonacciCircleOverlayRef.current);
+    if (!isToolCircleActive && onFibonacciPointDragRef.current) {
+      onFibonacciPointDragRef.current(target, point);
+      return;
+    }
+    setToolFibonacciCircleOverlay((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        [target]: point,
+      };
+    });
+  }, []);
+
+  const applyCircleMoveUpdate = useCallback((next: { center: ChartPickedPoint; edge: ChartPickedPoint }) => {
+    setToolFibonacciCircleOverlay((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        center: next.center,
+        edge: next.edge,
+      };
+    });
+  }, []);
+
   const applyChannelPointUpdate = useCallback(
-    (target: "start" | "end", point: ChartPickedPoint) => {
-      if (onFibonacciChannelPointDragRef.current) {
+    (target: "a" | "b" | "c", point: ChartPickedPoint) => {
+      const isToolChannelActive = Boolean(toolFibonacciOverlayRef.current);
+      if (!isToolChannelActive && onFibonacciChannelPointDragRef.current) {
         onFibonacciChannelPointDragRef.current(target, point);
         return;
       }
@@ -1169,15 +1315,15 @@ export function BitcoinChart({
         return {
           ...prev,
           [target]: point,
-          previewEnd: undefined,
         };
       });
     },
     [],
   );
 
-  const applyChannelMoveUpdate = useCallback((next: { start: ChartPickedPoint; end: ChartPickedPoint }) => {
-    if (onFibonacciChannelMoveRef.current) {
+  const applyChannelMoveUpdate = useCallback((next: { a: ChartPickedPoint; b: ChartPickedPoint; c: ChartPickedPoint }) => {
+    const isToolChannelActive = Boolean(toolFibonacciOverlayRef.current);
+    if (!isToolChannelActive && onFibonacciChannelMoveRef.current) {
       onFibonacciChannelMoveRef.current(next);
       return;
     }
@@ -1185,9 +1331,9 @@ export function BitcoinChart({
       if (!prev) return prev;
       return {
         ...prev,
-        start: next.start,
-        end: next.end,
-        previewEnd: undefined,
+        a: next.a,
+        b: next.b,
+        c: next.c,
       };
     });
   }, []);
@@ -1231,6 +1377,7 @@ export function BitcoinChart({
     if (!selectedToolFibonacciRef.current) return;
     onFibonacciDelete?.();
     setToolFibonacciOverlay(undefined);
+    setToolFibonacciCircleOverlay(undefined);
     setSelectedToolFibonacci(false);
     setPendingDrawingStart(null);
     setPendingDrawingHover(null);
@@ -1345,12 +1492,24 @@ export function BitcoinChart({
         };
         setPendingDrawingHover(hoveredPoint);
         if (currentToolKind === "fibonacci") {
-          setToolFibonacciOverlay({
-            start: currentPendingStart,
-            end: undefined,
-            previewEnd: hoveredPoint,
-            ratios: FIB_CHANNEL_DEFAULT_RATIOS,
-          });
+          const fibVariant = resolveFibonacciToolVariant(selectedToolRef.current);
+          if (fibVariant === "circle") {
+            setToolFibonacciCircleOverlay({
+              center: currentPendingStart,
+              edge: hoveredPoint,
+              ratios: FIB_CIRCLE_DEFAULT_RATIOS,
+            });
+          } else {
+            const currentOverlay = fibonacciChannelRef.current;
+            const aPoint = currentPendingStart;
+            const bPoint = currentOverlay?.b ?? null;
+            setToolFibonacciOverlay({
+              a: aPoint,
+              b: bPoint,
+              c: hoveredPoint,
+              ratios: FIB_CHANNEL_DEFAULT_RATIOS,
+            });
+          }
         }
       } else {
         setPendingDrawingHover(null);
@@ -1380,32 +1539,84 @@ export function BitcoinChart({
           if (pickedPoint.ts === null) return;
 
           const currentToolKind = activeToolKindRef.current;
-          const currentPendingStart = pendingDrawingStartRef.current;
+          let currentPendingStart = pendingDrawingStartRef.current;
+          if (currentToolKind === "fibonacci" && !currentPendingStart) {
+            const fibVariant = resolveFibonacciToolVariant(selectedToolRef.current);
+            if (fibVariant === "circle") {
+              currentPendingStart = toolFibonacciCircleOverlayRef.current?.center ?? null;
+            } else {
+              currentPendingStart = toolFibonacciOverlayRef.current?.a ?? null;
+            }
+          }
           if (currentToolKind) {
             if (!currentPendingStart) {
               lastPickAtRef.current = Date.now();
+              pendingDrawingStartRef.current = pickedPoint;
               setPendingDrawingStart(pickedPoint);
               if (currentToolKind === "fibonacci") {
-                setToolFibonacciOverlay({
-                  start: pickedPoint,
-                  end: undefined,
-                  previewEnd: undefined,
-                  ratios: FIB_CHANNEL_DEFAULT_RATIOS,
-                });
+                const fibVariant = resolveFibonacciToolVariant(selectedToolRef.current);
+                if (fibVariant === "circle") {
+                  const nextCircleOverlay: FibonacciCircleOverlay = {
+                    center: pickedPoint,
+                    edge: undefined,
+                    ratios: FIB_CIRCLE_DEFAULT_RATIOS,
+                  };
+                  toolFibonacciCircleOverlayRef.current = nextCircleOverlay;
+                  setToolFibonacciCircleOverlay(nextCircleOverlay);
+                } else {
+                  const nextChannelOverlay: FibonacciChannelOverlay = {
+                    a: pickedPoint,
+                    b: undefined,
+                    c: undefined,
+                    ratios: FIB_CHANNEL_DEFAULT_RATIOS,
+                  };
+                  toolFibonacciOverlayRef.current = nextChannelOverlay;
+                  setToolFibonacciOverlay(nextChannelOverlay);
+                }
               }
               return;
             }
 
             if (currentToolKind === "fibonacci") {
-              lastPickAtRef.current = Date.now();
-              setToolFibonacciOverlay({
-                start: currentPendingStart,
-                end: pickedPoint,
-                previewEnd: undefined,
-                ratios: FIB_CHANNEL_DEFAULT_RATIOS,
-              });
+              const fibVariant = resolveFibonacciToolVariant(selectedToolRef.current);
+              if (fibVariant === "circle") {
+                lastPickAtRef.current = Date.now();
+                const nextCircleOverlay: FibonacciCircleOverlay = {
+                  center: currentPendingStart,
+                  edge: pickedPoint,
+                  ratios: FIB_CIRCLE_DEFAULT_RATIOS,
+                };
+                toolFibonacciCircleOverlayRef.current = nextCircleOverlay;
+                setToolFibonacciCircleOverlay(nextCircleOverlay);
+              } else {
+                const currentOverlay = fibonacciChannelRef.current;
+                const currentB = currentOverlay?.b;
+                if (!currentB) {
+                  lastPickAtRef.current = Date.now();
+                  const nextChannelOverlay: FibonacciChannelOverlay = {
+                    a: currentPendingStart,
+                    b: pickedPoint,
+                    c: undefined,
+                    ratios: FIB_CHANNEL_DEFAULT_RATIOS,
+                  };
+                  toolFibonacciOverlayRef.current = nextChannelOverlay;
+                  setToolFibonacciOverlay(nextChannelOverlay);
+                  return;
+                }
+
+                lastPickAtRef.current = Date.now();
+                const nextChannelOverlay: FibonacciChannelOverlay = {
+                  a: currentPendingStart,
+                  b: currentB,
+                  c: pickedPoint,
+                  ratios: FIB_CHANNEL_DEFAULT_RATIOS,
+                };
+                toolFibonacciOverlayRef.current = nextChannelOverlay;
+                setToolFibonacciOverlay(nextChannelOverlay);
+              }
               setSelectedToolFibonacci(true);
               setSelectedDrawingId(null);
+              pendingDrawingStartRef.current = null;
               setPendingDrawingStart(null);
               setPendingDrawingHover(null);
               setSelectedTool("");
@@ -1424,6 +1635,7 @@ export function BitcoinChart({
               },
             ]);
             lastPickAtRef.current = Date.now();
+            pendingDrawingStartRef.current = null;
             setPendingDrawingStart(null);
             setPendingDrawingHover(null);
             setSelectedTool("");
@@ -1460,13 +1672,22 @@ export function BitcoinChart({
       if (Date.now() - lastFibDragAtRef.current < 120) return;
       const activeSeries = seriesRef.current;
       if (!activeSeries) return;
+      const drawingToolActive = Boolean(activeToolKindRef.current);
+      const drawingPlacementInProgress = Boolean(pendingDrawingStartRef.current);
+      if (drawingToolActive && drawingPlacementInProgress) return;
 
       const rect = container.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
-      const activeChannelOverlay = fibonacciChannelRef.current;
-      const hasToolFibo = Boolean(enableDrawingTools && activeChannelOverlay?.start && activeChannelOverlay?.end);
-      if (hasToolFibo && hitTestFibonacciChannelOverlay(x, y)) {
+      const activeToolChannelOverlay = toolFibonacciOverlayRef.current;
+      const activeToolCircleOverlay = toolFibonacciCircleOverlayRef.current;
+      const hasToolChannelOverlay = Boolean(
+        enableDrawingTools && activeToolChannelOverlay?.a && activeToolChannelOverlay?.b && activeToolChannelOverlay?.c,
+      );
+      const hasToolCircleOverlay = Boolean(
+        enableDrawingTools && activeToolCircleOverlay?.center && activeToolCircleOverlay?.edge,
+      );
+      if ((hasToolChannelOverlay && hitTestFibonacciChannelOverlay(x, y)) || (hasToolCircleOverlay && hitTestFibonacciOverlay(x, y))) {
         setSelectedToolFibonacci(true);
         setSelectedDrawingId(null);
         return;
@@ -1559,38 +1780,63 @@ export function BitcoinChart({
       if (drawingToolActive && drawingPlacementInProgress) return;
 
       const fibTarget = pickFibonacciHandle(x, y);
+      const fibHit = hitTestFibonacciOverlay(x, y);
       const channelTarget = pickFibonacciChannelHandle(x, y);
       const channelHit = hitTestFibonacciChannelOverlay(x, y);
-      if (!fibTarget && !channelTarget && !channelHit) {
+      if (!fibTarget && !channelTarget && !channelHit && !fibHit) {
         if (selectedDrawingIdRef.current) setSelectedDrawingId(null);
         if (selectedToolFibonacciRef.current) setSelectedToolFibonacci(false);
         return;
       }
 
       if (fibTarget) {
+        setSelectedToolFibonacci(true);
+        setSelectedDrawingId(null);
         fibDragTargetRef.current = fibTarget;
       } else if (channelTarget) {
         setSelectedToolFibonacci(true);
         setSelectedDrawingId(null);
-        fibDragTargetRef.current = channelTarget === "start" ? "channel-start" : "channel-end";
-      } else {
+        fibDragTargetRef.current =
+          channelTarget === "a" ? "channel-a" : channelTarget === "b" ? "channel-b" : "channel-c";
+      } else if (channelHit) {
         const channel = fibonacciChannelRef.current;
         const point = toPickedPointFromCoordinate(x, y);
-        if (!channel?.start || !channel?.end || !point || point.ts === null) return;
-        const startTs = channel.start.ts;
-        const endTs = channel.end.ts;
-        if (startTs === null || endTs === null) return;
+        if (!channel?.a || !channel?.b || !channel?.c || !point || point.ts === null) return;
+        const aTs = channel.a.ts;
+        const bTs = channel.b.ts;
+        const cTs = channel.c.ts;
+        if (aTs === null || bTs === null || cTs === null) return;
         channelMoveSessionRef.current = {
-          startTs,
-          endTs,
-          startPrice: channel.start.price,
-          endPrice: channel.end.price,
+          aTs,
+          bTs,
+          cTs,
+          aPrice: channel.a.price,
+          bPrice: channel.b.price,
+          cPrice: channel.c.price,
           grabTs: point.ts,
           grabPrice: point.price,
         };
         setSelectedToolFibonacci(true);
         setSelectedDrawingId(null);
         fibDragTargetRef.current = "channel-move";
+      } else if (fibHit) {
+        const circle = fibonacciCircleRef.current;
+        const point = toPickedPointFromCoordinate(x, y);
+        if (!circle?.center || !circle?.edge || !point || point.ts === null) return;
+        const centerTs = circle.center.ts;
+        const edgeTs = circle.edge.ts;
+        if (centerTs === null || edgeTs === null) return;
+        circleMoveSessionRef.current = {
+          centerTs,
+          edgeTs,
+          centerPrice: circle.center.price,
+          edgePrice: circle.edge.price,
+          grabTs: point.ts,
+          grabPrice: point.price,
+        };
+        setSelectedToolFibonacci(true);
+        setSelectedDrawingId(null);
+        fibDragTargetRef.current = "circle-move";
       }
 
       fibDragMovedRef.current = false;
@@ -1606,6 +1852,7 @@ export function BitcoinChart({
         lastFibDragAtRef.current = Date.now();
       }
       fibDragTargetRef.current = null;
+      circleMoveSessionRef.current = null;
       channelMoveSessionRef.current = null;
       drawingDragIdRef.current = null;
       drawingMoveSessionRef.current = null;
@@ -1651,6 +1898,17 @@ export function BitcoinChart({
           return;
         }
 
+        if (activeTarget === "circle-move") {
+          const moved = computeMovedCirclePoints(x, y);
+          if (!moved) return;
+          fibDragMovedRef.current = true;
+          lastFibDragAtRef.current = Date.now();
+          applyCircleMoveUpdate(moved);
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+
         if (activeTarget === "channel-move") {
           const moved = computeMovedChannelPoints(x, y);
           if (!moved) return;
@@ -1680,9 +1938,9 @@ export function BitcoinChart({
             ),
           );
         } else if (activeTarget === "center" || activeTarget === "edge") {
-          onFibonacciPointDragRef.current?.(activeTarget, point);
+          applyCirclePointUpdate(activeTarget, point);
         } else {
-          const target = activeTarget === "channel-start" ? "start" : "end";
+          const target = activeTarget === "channel-a" ? "a" : activeTarget === "channel-b" ? "b" : "c";
           applyChannelPointUpdate(target, point);
         }
         event.preventDefault();
@@ -1700,6 +1958,8 @@ export function BitcoinChart({
       const hoverChannelTarget = pickFibonacciChannelHandle(x, y);
       if (hoverFibTarget || hoverChannelTarget) {
         container.style.cursor = "grab";
+      } else if (hitTestFibonacciOverlay(x, y)) {
+        container.style.cursor = "move";
       } else if (hitTestFibonacciChannelOverlay(x, y)) {
         container.style.cursor = "move";
       } else {
@@ -1743,6 +2003,16 @@ export function BitcoinChart({
         event.stopPropagation();
         return;
       }
+      if (activeTarget === "circle-move") {
+        const moved = computeMovedCirclePoints(x, y);
+        if (!moved) return;
+        fibDragMovedRef.current = true;
+        lastFibDragAtRef.current = Date.now();
+        applyCircleMoveUpdate(moved);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (activeTarget === "channel-move") {
         const moved = computeMovedChannelPoints(x, y);
         if (!moved) return;
@@ -1771,9 +2041,9 @@ export function BitcoinChart({
           ),
         );
       } else if (activeTarget === "center" || activeTarget === "edge") {
-        onFibonacciPointDragRef.current?.(activeTarget, point);
+        applyCirclePointUpdate(activeTarget, point);
       } else {
-        const target = activeTarget === "channel-start" ? "start" : "end";
+        const target = activeTarget === "channel-a" ? "a" : activeTarget === "channel-b" ? "b" : "c";
         applyChannelPointUpdate(target, point);
       }
       event.preventDefault();
@@ -1837,7 +2107,12 @@ export function BitcoinChart({
     toPickedPointFromCoordinate,
     hitTestFibonacciOverlay,
     hitTestFibonacciChannelOverlay,
+    computeMovedCirclePoints,
     computeMovedChannelPoints,
+    applyCirclePointUpdate,
+    applyCircleMoveUpdate,
+    applyChannelPointUpdate,
+    applyChannelMoveUpdate,
     pickUserDrawingHit,
   ]);
 
@@ -1959,9 +2234,9 @@ export function BitcoinChart({
   }, [overlaySelectionEnabled]);
 
   useEffect(() => {
-    fibonacciCircleRef.current = fibonacciCircleOverlay;
+    fibonacciCircleRef.current = effectiveFibonacciCircleOverlay;
     requestFibonacciSync();
-  }, [fibonacciCircleOverlay, requestFibonacciSync]);
+  }, [effectiveFibonacciCircleOverlay, requestFibonacciSync]);
 
   useEffect(() => {
     fibonacciChannelRef.current = effectiveFibonacciChannelOverlay;
@@ -1977,6 +2252,7 @@ export function BitcoinChart({
     requestFibonacciSync,
     selectedDrawingId,
     toolFibonacciOverlay,
+    toolFibonacciCircleOverlay,
     userDrawings,
   ]);
 

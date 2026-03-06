@@ -50,7 +50,7 @@ INSERT INTO strategy (
         'fibonacci_channel_v1',
         'Fibonacci Channel V1',
         'app.strategy.applied_startegy.fibonacci.fibonacci_channel_strategy',
-        '{"type":"object","properties":{"start":{"type":"object"},"end":{"type":"object"},"ratios":{"type":"array","items":{"type":"number"}},"breakout_buffer":{"type":"number","default":0.0}},"additionalProperties":false,"required":["start","end"]}',
+        '{"type":"object","properties":{"a":{"type":"object"},"b":{"type":"object"},"c":{"type":"object"},"ratios":{"type":"array","items":{"type":"number"}},"breakout_buffer":{"type":"number","default":0.0}},"additionalProperties":false,"required":["a","b","c"]}',
         TRUE,
         'v1'
     ),

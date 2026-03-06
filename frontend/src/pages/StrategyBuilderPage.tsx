@@ -34,7 +34,7 @@ type RootTreeNode = {
 };
 
 type FibPointMode = "center" | "edge";
-type FibChannelPointMode = "start" | "end";
+type FibChannelPointMode = "a" | "b" | "c";
 
 const FIB_CIRCLE_DEFAULT_RATIOS = [0.236, 0.382, 0.5, 0.618, 1.0, 1.618, 2.0, 2.618];
 const FIB_CHANNEL_DEFAULT_RATIOS = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
@@ -284,8 +284,9 @@ export function StrategyBuilderPage() {
     };
   }, [fibCenterPoint, fibEdgePoint, fibRatios, fibChartPickActive, fibPointMode, fibPreviewEdgePoint, isFibonacciCircles]);
 
-  const fibChannelStartPoint = useMemo(() => parsePoint(fieldValues.start ?? ""), [fieldValues.start]);
-  const fibChannelEndPoint = useMemo(() => parsePoint(fieldValues.end ?? ""), [fieldValues.end]);
+  const fibChannelPointA = useMemo(() => parsePoint(fieldValues.a ?? ""), [fieldValues.a]);
+  const fibChannelPointB = useMemo(() => parsePoint(fieldValues.b ?? ""), [fieldValues.b]);
+  const fibChannelPointC = useMemo(() => parsePoint(fieldValues.c ?? ""), [fieldValues.c]);
   const fibChannelRatios = useMemo(
     () => parseRatios(fieldValues.ratios ?? "", true, FIB_CHANNEL_DEFAULT_RATIOS),
     [fieldValues.ratios],
@@ -294,18 +295,19 @@ export function StrategyBuilderPage() {
   const fibChannelOverlay = useMemo<FibonacciChannelOverlay | undefined>(() => {
     if (!isFibonacciChannel) return undefined;
     return {
-      start: fibChannelStartPoint,
-      end: fibChannelEndPoint,
-      previewEnd: fibChannelChartPickActive && fibChannelPointMode === "end" ? fibChannelPreviewEndPoint : null,
+      a: fibChannelPointA,
+      b: fibChannelPointB,
+      c: fibChannelPointC ?? (fibChannelChartPickActive && fibChannelPointMode === "c" ? fibChannelPreviewEndPoint : null),
       ratios: fibChannelRatios,
     };
   }, [
     fibChannelChartPickActive,
-    fibChannelEndPoint,
+    fibChannelPointA,
+    fibChannelPointB,
+    fibChannelPointC,
     fibChannelPointMode,
     fibChannelPreviewEndPoint,
     fibChannelRatios,
-    fibChannelStartPoint,
     isFibonacciChannel,
   ]);
 
@@ -330,8 +332,16 @@ export function StrategyBuilderPage() {
           setFibOverlaySelected(false);
           setFibPreviewEdgePoint(null);
           if (isCreateMode && strategy.code === "fibonacci_channel_v1") {
-            setFibChannelPointMode("start");
+            setFibChannelPointMode("a");
             setFibChannelChartPickActive(true);
+            setFibChannelPreviewEndPoint(null);
+          } else if (isCreateMode && strategy.code === "fibonacci_circles_v1") {
+            setFibPointMode("center");
+            setFibChartPickActive(true);
+            setFibOverlaySelected(false);
+            setFibPreviewEdgePoint(null);
+            setFibChannelPointMode(null);
+            setFibChannelChartPickActive(false);
             setFibChannelPreviewEndPoint(null);
           } else {
             setFibChannelPointMode(null);
@@ -399,7 +409,7 @@ export function StrategyBuilderPage() {
                   if (isFibonacciCircles && fibChartPickActive && fibPointMode === "edge" && fibCenterPoint) {
                     setFibPreviewEdgePoint(point);
                   }
-                  if (isFibonacciChannel && fibChannelChartPickActive && fibChannelPointMode === "end") {
+                  if (isFibonacciChannel && fibChannelChartPickActive && fibChannelPointMode === "c") {
                     setFibChannelPreviewEndPoint(point);
                   }
                 }}
@@ -421,10 +431,10 @@ export function StrategyBuilderPage() {
                   if (isFibonacciChannel && fibChannelChartPickActive) {
                     if (point.ts === null) return;
 
-                    if (fibChannelPointMode === "end") {
+                    if (fibChannelPointMode === "c") {
                       setFieldValues((prev) => ({
                         ...prev,
-                        end: stringifyPoint(point),
+                        c: stringifyPoint(point),
                       }));
                       setFibChannelPointMode(null);
                       setFibChannelChartPickActive(false);
@@ -432,11 +442,21 @@ export function StrategyBuilderPage() {
                       return;
                     }
 
+                    if (fibChannelPointMode === "b") {
+                      setFieldValues((prev) => ({
+                        ...prev,
+                        b: stringifyPoint(point),
+                      }));
+                      setFibChannelPointMode("c");
+                      setFibChannelPreviewEndPoint(null);
+                      return;
+                    }
+
                     setFieldValues((prev) => ({
                       ...prev,
-                      start: stringifyPoint(point),
+                      a: stringifyPoint(point),
                     }));
-                    setFibChannelPointMode("end");
+                    setFibChannelPointMode("b");
                     setFibChannelPreviewEndPoint(null);
                     return;
                   }
@@ -474,11 +494,12 @@ export function StrategyBuilderPage() {
                 }
                 onFibonacciChannelMove={
                   isFibonacciChannel
-                    ? ({ start, end }) => {
+                    ? ({ a, b, c }) => {
                         setFieldValues((prev) => ({
                           ...prev,
-                          start: stringifyPoint(start),
-                          end: stringifyPoint(end),
+                          a: stringifyPoint(a),
+                          b: stringifyPoint(b),
+                          c: stringifyPoint(c),
                         }));
                       }
                     : undefined
@@ -530,15 +551,15 @@ export function StrategyBuilderPage() {
                     )}
                     {showParameterEditor && isFibonacciChannel && fibChannelChartPickActive && (
                       <p className="mt-1 text-[11px] text-sky-300">
-                        차트 선택 모드: {fibChannelPointMode === "end" ? "end" : "start"}
+                        차트 선택 모드: {fibChannelPointMode ?? "a"}
                       </p>
                     )}
                     {showParameterEditor && !targetFieldKey && (
                       <p className="mt-1 text-[11px] text-slate-400">
                         {isFibonacciChannel
-                          ? "차트에서 start/end를 순서대로 클릭하면 채널이 바로 그려집니다."
+                          ? "차트에서 a/b/c를 순서대로 클릭하면 채널이 바로 그려집니다."
                           : isFibonacciCircles
-                          ? "차트 선택 버튼으로 center/edge를 순서대로 선택하세요."
+                          ? "차트에서 center/edge를 순서대로 클릭하면 서클이 바로 그려집니다."
                           : "숫자 입력칸을 먼저 클릭한 뒤 차트를 클릭하세요."}
                       </p>
                     )}
@@ -589,13 +610,13 @@ export function StrategyBuilderPage() {
                     {isCreateMode && isFibonacciChannel ? (
                       <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
                         <p className="text-xs text-slate-300">
-                          파라미터 입력 없이 차트에서 start/end를 순서대로 클릭하면 채널이 즉시 표시됩니다.
+                          파라미터 입력 없이 차트에서 a/b/c를 순서대로 클릭하면 채널이 즉시 표시됩니다.
                         </p>
                         {!fibChannelChartPickActive && (
                           <button
                             type="button"
                             onClick={() => {
-                              setFibChannelPointMode("start");
+                              setFibChannelPointMode("a");
                               setFibChannelChartPickActive(true);
                               setFibChannelPreviewEndPoint(null);
                             }}
@@ -606,7 +627,28 @@ export function StrategyBuilderPage() {
                         )}
                       </div>
                     ) : null}
-                    {!(isCreateMode && isFibonacciChannel) && (
+                    {isCreateMode && isFibonacciCircles ? (
+                      <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                        <p className="text-xs text-slate-300">
+                          파라미터 입력 없이 차트에서 center/edge를 순서대로 클릭하면 서클이 즉시 표시됩니다.
+                        </p>
+                        {!fibChartPickActive && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFibPointMode("center");
+                              setFibChartPickActive(true);
+                              setFibOverlaySelected(false);
+                              setFibPreviewEdgePoint(null);
+                            }}
+                            className="mt-2 rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800/70"
+                          >
+                            서클 다시 그리기
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
+                    {!(isCreateMode && (isFibonacciChannel || isFibonacciCircles)) && (
                       <>
                     {fields.length === 0 && <p className="text-xs text-slate-500">표시할 파라미터가 없습니다.</p>}
                     {fields.map((field) => {
