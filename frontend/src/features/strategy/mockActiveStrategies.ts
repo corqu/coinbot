@@ -26,6 +26,15 @@ const fibonacciChannelSchema = {
   },
 };
 
+const fibonacciSpeedResistanceArcsSchema = {
+  properties: {
+    start: { type: "object", title: "start" },
+    end: { type: "object", title: "end" },
+    ratios: { type: "array", title: "ratios", default: [0.382, 0.5, 0.618, 1.0] },
+    breakout_buffer: { type: "number", title: "breakout_buffer", default: 0.0, minimum: 0, maximum: 0.2 },
+  },
+};
+
 export const mockActiveStrategies: StrategySummary[] = [
   {
     id: 9001,
@@ -54,6 +63,16 @@ export const mockActiveStrategies: StrategySummary[] = [
     alias: "Fibonacci Channel",
     source: "app.strategy.applied_startegy.fibonacci.fibonacci_channel_strategy",
     parameterSchemaJson: JSON.stringify(fibonacciChannelSchema),
+    isActive: true,
+    version: "mock-1.0.0",
+  },
+  {
+    id: 9004,
+    code: "fibonacci_speed_resistance_arcs_v1",
+    name: "피보나치 스피드 저항 아크",
+    alias: "Fibonacci Speed Resistance Arcs",
+    source: "app.strategy.applied_startegy.fibonacci.fibonacci_speed_resistance_arcs_strategy",
+    parameterSchemaJson: JSON.stringify(fibonacciSpeedResistanceArcsSchema),
     isActive: true,
     version: "mock-1.0.0",
   },

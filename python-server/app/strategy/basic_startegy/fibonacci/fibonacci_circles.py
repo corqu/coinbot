@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from math import sqrt
 
-from app.strategy.basic_startegy.fibonacci.common import FibAnchor, normalize_anchor
+from app.strategy.basic_startegy.fibonacci.common import DEFAULT_CIRCLE_RATIOS, FibAnchor, normalize_anchor
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ def fibonacci_circles(
 ) -> list[FibonacciCircle]:
     c = normalize_anchor(center)
     e = normalize_anchor(edge)
-    fib = ratios or [0.382, 0.5, 0.618, 1.0, 1.618]
+    fib = ratios or DEFAULT_CIRCLE_RATIOS
     base_scale = _base_axis_scale(c, e)
     if base_scale is None:
         return []

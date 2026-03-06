@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
   BitcoinChart,
@@ -6,6 +6,8 @@ import {
   type ChartPickedPoint,
   type FibonacciCircleOverlay,
   type FibonacciChannelOverlay,
+  type FibonacciRetracementOverlay,
+  type FibonacciSpeedResistanceArcsOverlay,
 } from "@/components/charts/BitcoinChart";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useActiveStrategies } from "@/features/strategy/hooks";
@@ -34,11 +36,16 @@ type RootTreeNode = {
 };
 
 type FibPointMode = "center" | "edge";
+type FibRetPointMode = "a" | "b";
 type FibChannelPointMode = "a" | "b" | "c";
+type FibSpeedArcsPointMode = "start" | "end";
 
 const FIB_CIRCLE_DEFAULT_RATIOS = [0.236, 0.382, 0.5, 0.618, 1.0, 1.618, 2.0, 2.618];
+const FIB_RETRACEMENT_DEFAULT_RATIOS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
 const FIB_CHANNEL_DEFAULT_RATIOS = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+const FIB_SPEED_ARCS_DEFAULT_RATIOS = [0.382, 0.5, 0.618, 1.0];
 const overlayColors = ["#38bdf8", "#f97316", "#22c55e", "#eab308", "#a855f7", "#f43f5e"];
+
 
 function readFieldsFromSchema(schemaJson: string): StrategyField[] {
   try {
@@ -185,9 +192,15 @@ export function StrategyBuilderPage() {
   const [fibChartPickActive, setFibChartPickActive] = useState(false);
   const [fibOverlaySelected, setFibOverlaySelected] = useState(false);
   const [fibPreviewEdgePoint, setFibPreviewEdgePoint] = useState<ChartPickedPoint | null>(null);
+  const [fibRetPointMode, setFibRetPointMode] = useState<FibRetPointMode | null>(null);
+  const [fibRetChartPickActive, setFibRetChartPickActive] = useState(false);
+  const [fibRetPreviewEndPoint, setFibRetPreviewEndPoint] = useState<ChartPickedPoint | null>(null);
   const [fibChannelPointMode, setFibChannelPointMode] = useState<FibChannelPointMode | null>(null);
   const [fibChannelChartPickActive, setFibChannelChartPickActive] = useState(false);
   const [fibChannelPreviewEndPoint, setFibChannelPreviewEndPoint] = useState<ChartPickedPoint | null>(null);
+  const [fibSpeedArcsPointMode, setFibSpeedArcsPointMode] = useState<FibSpeedArcsPointMode | null>(null);
+  const [fibSpeedArcsChartPickActive, setFibSpeedArcsChartPickActive] = useState(false);
+  const [fibSpeedArcsPreviewEndPoint, setFibSpeedArcsPreviewEndPoint] = useState<ChartPickedPoint | null>(null);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [overlayEnabled, setOverlayEnabled] = useState<Record<string, boolean>>({});
 
@@ -208,7 +221,9 @@ export function StrategyBuilderPage() {
     [selectedStrategy],
   );
   const isFibonacciCircles = selectedStrategy?.code === "fibonacci_circles_v1";
+  const isFibonacciRetracement = selectedStrategy?.code === "fibonacci_retracement_v1";
   const isFibonacciChannel = selectedStrategy?.code === "fibonacci_channel_v1";
+  const isFibonacciSpeedResistanceArcs = selectedStrategy?.code === "fibonacci_speed_resistance_arcs_v1";
 
   useEffect(() => {
     setFieldValues(buildInitialValues(fields));
@@ -217,9 +232,15 @@ export function StrategyBuilderPage() {
     setFibChartPickActive(false);
     setFibOverlaySelected(false);
     setFibPreviewEdgePoint(null);
+    setFibRetPointMode(null);
+    setFibRetChartPickActive(false);
+    setFibRetPreviewEndPoint(null);
     setFibChannelPointMode(null);
     setFibChannelChartPickActive(false);
     setFibChannelPreviewEndPoint(null);
+    setFibSpeedArcsPointMode(null);
+    setFibSpeedArcsChartPickActive(false);
+    setFibSpeedArcsPreviewEndPoint(null);
 
     const nextOverlayEnabled: Record<string, boolean> = {};
     for (const field of fields) nextOverlayEnabled[field.key] = false;
@@ -239,6 +260,18 @@ export function StrategyBuilderPage() {
   }, [isFibonacciCircles]);
 
   useEffect(() => {
+    if (!isFibonacciRetracement) return;
+    setFieldValues((prev) => {
+      const ratios = (prev.ratios ?? "").trim();
+      if (ratios) return prev;
+      return {
+        ...prev,
+        ratios: JSON.stringify(FIB_RETRACEMENT_DEFAULT_RATIOS),
+      };
+    });
+  }, [isFibonacciRetracement]);
+
+  useEffect(() => {
     if (!isFibonacciChannel) return;
     setFieldValues((prev) => {
       const ratios = (prev.ratios ?? "").trim();
@@ -249,6 +282,18 @@ export function StrategyBuilderPage() {
       };
     });
   }, [isFibonacciChannel]);
+
+  useEffect(() => {
+    if (!isFibonacciSpeedResistanceArcs) return;
+    setFieldValues((prev) => {
+      const ratios = (prev.ratios ?? "").trim();
+      if (ratios) return prev;
+      return {
+        ...prev,
+        ratios: JSON.stringify(FIB_SPEED_ARCS_DEFAULT_RATIOS),
+      };
+    });
+  }, [isFibonacciSpeedResistanceArcs]);
 
   const chartOverlays = useMemo<ChartOverlay[]>(() => {
     return fields.reduce<ChartOverlay[]>((acc, field, index) => {
@@ -284,6 +329,21 @@ export function StrategyBuilderPage() {
     };
   }, [fibCenterPoint, fibEdgePoint, fibRatios, fibChartPickActive, fibPointMode, fibPreviewEdgePoint, isFibonacciCircles]);
 
+  const fibRetPointA = useMemo(() => parsePoint(fieldValues.a ?? ""), [fieldValues.a]);
+  const fibRetPointB = useMemo(() => parsePoint(fieldValues.b ?? ""), [fieldValues.b]);
+  const fibRetRatios = useMemo(() => parseRatios(fieldValues.ratios ?? "", true, FIB_RETRACEMENT_DEFAULT_RATIOS), [fieldValues.ratios]);
+
+  const fibRetOverlay = useMemo<FibonacciRetracementOverlay | undefined>(() => {
+    if (!isFibonacciRetracement) return undefined;
+    const previewB =
+      fibRetChartPickActive && fibRetPointMode === "b" && fibRetPointA && fibRetPreviewEndPoint ? fibRetPreviewEndPoint : null;
+    return {
+      a: fibRetPointA,
+      b: fibRetPointB ?? previewB,
+      ratios: fibRetRatios,
+    };
+  }, [fibRetPointA, fibRetPointB, fibRetRatios, fibRetChartPickActive, fibRetPointMode, fibRetPreviewEndPoint, isFibonacciRetracement]);
+
   const fibChannelPointA = useMemo(() => parsePoint(fieldValues.a ?? ""), [fieldValues.a]);
   const fibChannelPointB = useMemo(() => parsePoint(fieldValues.b ?? ""), [fieldValues.b]);
   const fibChannelPointC = useMemo(() => parsePoint(fieldValues.c ?? ""), [fieldValues.c]);
@@ -311,6 +371,31 @@ export function StrategyBuilderPage() {
     isFibonacciChannel,
   ]);
 
+  const fibSpeedArcsStart = useMemo(() => parsePoint(fieldValues.start ?? ""), [fieldValues.start]);
+  const fibSpeedArcsEnd = useMemo(() => parsePoint(fieldValues.end ?? ""), [fieldValues.end]);
+  const fibSpeedArcsRatios = useMemo(() => parseRatios(fieldValues.ratios ?? "", false, FIB_SPEED_ARCS_DEFAULT_RATIOS), [fieldValues.ratios]);
+
+  const fibSpeedArcsOverlay = useMemo<FibonacciSpeedResistanceArcsOverlay | undefined>(() => {
+    if (!isFibonacciSpeedResistanceArcs) return undefined;
+    const previewEnd =
+      fibSpeedArcsChartPickActive && fibSpeedArcsPointMode === "end" && fibSpeedArcsStart && fibSpeedArcsPreviewEndPoint
+        ? fibSpeedArcsPreviewEndPoint
+        : null;
+    return {
+      start: fibSpeedArcsStart,
+      end: fibSpeedArcsEnd ?? previewEnd,
+      ratios: fibSpeedArcsRatios,
+    };
+  }, [
+    fibSpeedArcsChartPickActive,
+    fibSpeedArcsEnd,
+    fibSpeedArcsPointMode,
+    fibSpeedArcsPreviewEndPoint,
+    fibSpeedArcsRatios,
+    fibSpeedArcsStart,
+    isFibonacciSpeedResistanceArcs,
+  ]);
+
   const tree = useMemo(() => buildTree(strategies), [strategies]);
   const sortedRoots = useMemo(() => Array.from(tree.entries()).sort(([a], [b]) => a.localeCompare(b)), [tree]);
   const isUsingMockStrategies = useMemo(() => strategies.some((strategy) => strategy.version.startsWith("mock-")), [strategies]);
@@ -331,6 +416,12 @@ export function StrategyBuilderPage() {
           setFibChartPickActive(false);
           setFibOverlaySelected(false);
           setFibPreviewEdgePoint(null);
+          setFibRetPointMode(null);
+          setFibRetChartPickActive(false);
+          setFibRetPreviewEndPoint(null);
+          setFibSpeedArcsPointMode(null);
+          setFibSpeedArcsChartPickActive(false);
+          setFibSpeedArcsPreviewEndPoint(null);
           if (isCreateMode && strategy.code === "fibonacci_channel_v1") {
             setFibChannelPointMode("a");
             setFibChannelChartPickActive(true);
@@ -343,6 +434,13 @@ export function StrategyBuilderPage() {
             setFibChannelPointMode(null);
             setFibChannelChartPickActive(false);
             setFibChannelPreviewEndPoint(null);
+          } else if (isCreateMode && strategy.code === "fibonacci_speed_resistance_arcs_v1") {
+            setFibChannelPointMode(null);
+            setFibChannelChartPickActive(false);
+            setFibChannelPreviewEndPoint(null);
+            setFibSpeedArcsPointMode("start");
+            setFibSpeedArcsChartPickActive(true);
+            setFibSpeedArcsPreviewEndPoint(null);
           } else {
             setFibChannelPointMode(null);
             setFibChannelChartPickActive(false);
@@ -378,21 +476,50 @@ export function StrategyBuilderPage() {
                 enableDrawingTools={true}
                 overlays={chartOverlays}
                 fibonacciCircleOverlay={fibOverlay}
+                fibonacciRetracementOverlay={fibRetOverlay}
                 fibonacciChannelOverlay={fibChannelOverlay}
-                overlaySelectionEnabled={!fibChartPickActive}
-                showFibonacciActions={showParameterEditor && isFibonacciCircles && fibOverlaySelected}
+                fibonacciSpeedResistanceArcsOverlay={fibSpeedArcsOverlay}
+                overlaySelectionEnabled={
+                  !fibChartPickActive && !fibRetChartPickActive && !fibChannelChartPickActive && !fibSpeedArcsChartPickActive
+                }
+                showFibonacciActions={false}
                 onFibonacciDelete={() => {
-                  setFieldValues((prev) => ({ ...prev, center: "{}", edge: "{}" }));
-                  setFibPointMode(null);
-                  setFibChartPickActive(false);
-                  setFibOverlaySelected(false);
-                  setFibPreviewEdgePoint(null);
+                  if (isFibonacciCircles) {
+                    setFieldValues((prev) => ({ ...prev, center: "{}", edge: "{}" }));
+                    setFibPointMode(null);
+                    setFibChartPickActive(false);
+                    setFibOverlaySelected(false);
+                    setFibPreviewEdgePoint(null);
+                    return;
+                  }
+                  if (isFibonacciRetracement) {
+                    setFieldValues((prev) => ({ ...prev, a: "{}", b: "{}" }));
+                    setFibRetPointMode(null);
+                    setFibRetChartPickActive(false);
+                    setFibRetPreviewEndPoint(null);
+                    return;
+                  }
+                  if (isFibonacciSpeedResistanceArcs) {
+                    setFieldValues((prev) => ({ ...prev, start: "{}", end: "{}" }));
+                    setFibSpeedArcsPointMode(null);
+                    setFibSpeedArcsChartPickActive(false);
+                    setFibSpeedArcsPreviewEndPoint(null);
+                    return;
+                  }
+                  if (isFibonacciChannel) {
+                    setFieldValues((prev) => ({ ...prev, a: "{}", b: "{}", c: "{}" }));
+                    setFibChannelPointMode(null);
+                    setFibChannelChartPickActive(false);
+                    setFibChannelPreviewEndPoint(null);
+                  }
                 }}
                 onFibonacciOverlayClick={() => {
-                  if (!hasFibOverlay) return;
-                  setFibOverlaySelected(true);
-                  setFibChartPickActive(false);
-                  setFibPreviewEdgePoint(null);
+                  if (isFibonacciCircles) {
+                    if (!hasFibOverlay) return;
+                    setFibOverlaySelected(true);
+                    setFibChartPickActive(false);
+                    setFibPreviewEdgePoint(null);
+                  }
                 }}
                 onFibonacciPointDrag={(target, point) => {
                   if (!isFibonacciCircles) return;
@@ -405,16 +532,80 @@ export function StrategyBuilderPage() {
                   setFibPointMode(null);
                   setFibPreviewEdgePoint(null);
                 }}
+                onFibonacciRetracementPointDrag={
+                  isFibonacciRetracement
+                    ? (target, point) => {
+                        setFieldValues((prev) => ({
+                          ...prev,
+                          [target]: stringifyPoint(point),
+                        }));
+                        setFibRetPointMode(null);
+                        setFibRetChartPickActive(false);
+                        setFibRetPreviewEndPoint(null);
+                      }
+                    : undefined
+                }
+                onFibonacciRetracementMove={
+                  isFibonacciRetracement
+                    ? ({ a, b }) => {
+                        setFieldValues((prev) => ({
+                          ...prev,
+                          a: stringifyPoint(a),
+                          b: stringifyPoint(b),
+                        }));
+                      }
+                    : undefined
+                }
+                onFibonacciSpeedResistanceArcsPointDrag={
+                  isFibonacciSpeedResistanceArcs
+                    ? (target, point) => {
+                        setFieldValues((prev) => ({
+                          ...prev,
+                          [target]: stringifyPoint(point),
+                        }));
+                        setFibSpeedArcsPointMode(null);
+                        setFibSpeedArcsChartPickActive(false);
+                        setFibSpeedArcsPreviewEndPoint(null);
+                      }
+                    : undefined
+                }
+                onFibonacciSpeedResistanceArcsMove={
+                  isFibonacciSpeedResistanceArcs
+                    ? ({ start, end }) => {
+                        setFieldValues((prev) => ({
+                          ...prev,
+                          start: stringifyPoint(start),
+                          end: stringifyPoint(end),
+                        }));
+                      }
+                    : undefined
+                }
                 onHoverPointChange={(point) => {
                   if (isFibonacciCircles && fibChartPickActive && fibPointMode === "edge" && fibCenterPoint) {
                     setFibPreviewEdgePoint(point);
                   }
+                  if (isFibonacciRetracement && fibRetChartPickActive && fibRetPointMode === "b" && fibRetPointA) {
+                    setFibRetPreviewEndPoint(point);
+                  }
                   if (isFibonacciChannel && fibChannelChartPickActive && fibChannelPointMode === "c") {
                     setFibChannelPreviewEndPoint(point);
                   }
+                  if (
+                    isFibonacciSpeedResistanceArcs &&
+                    fibSpeedArcsChartPickActive &&
+                    fibSpeedArcsPointMode === "end" &&
+                    fibSpeedArcsStart
+                  ) {
+                    setFibSpeedArcsPreviewEndPoint(point);
+                  }
                 }}
                 onPricePick={(price) => {
-                  if ((isFibonacciCircles && fibChartPickActive) || (isFibonacciChannel && fibChannelChartPickActive)) return;
+                  if (
+                    (isFibonacciCircles && fibChartPickActive) ||
+                    (isFibonacciRetracement && fibRetChartPickActive) ||
+                    (isFibonacciChannel && fibChannelChartPickActive)
+                  )
+                    return;
                   if (!targetFieldKey) return;
                   const targetField = fields.find((f) => f.key === targetFieldKey);
                   if (!targetField) return;
@@ -428,6 +619,48 @@ export function StrategyBuilderPage() {
                   }));
                 }}
                 onPointPick={(point) => {
+                  if (isFibonacciSpeedResistanceArcs && fibSpeedArcsChartPickActive) {
+                    if (point.ts === null) return;
+                    if (fibSpeedArcsPointMode === "end") {
+                      setFieldValues((prev) => ({
+                        ...prev,
+                        end: stringifyPoint(point),
+                      }));
+                      setFibSpeedArcsPointMode(null);
+                      setFibSpeedArcsChartPickActive(false);
+                      setFibSpeedArcsPreviewEndPoint(null);
+                      return;
+                    }
+                    setFieldValues((prev) => ({
+                      ...prev,
+                      start: stringifyPoint(point),
+                    }));
+                    setFibSpeedArcsPointMode("end");
+                    setFibSpeedArcsPreviewEndPoint(null);
+                    return;
+                  }
+
+                  if (isFibonacciRetracement && fibRetChartPickActive) {
+                    if (point.ts === null) return;
+                    if (fibRetPointMode === "b") {
+                      setFieldValues((prev) => ({
+                        ...prev,
+                        b: stringifyPoint(point),
+                      }));
+                      setFibRetPointMode(null);
+                      setFibRetChartPickActive(false);
+                      setFibRetPreviewEndPoint(null);
+                      return;
+                    }
+                    setFieldValues((prev) => ({
+                      ...prev,
+                      a: stringifyPoint(point),
+                    }));
+                    setFibRetPointMode("b");
+                    setFibRetPreviewEndPoint(null);
+                    return;
+                  }
+
                   if (isFibonacciChannel && fibChannelChartPickActive) {
                     if (point.ts === null) return;
 
@@ -627,6 +860,48 @@ export function StrategyBuilderPage() {
                         )}
                       </div>
                     ) : null}
+                    {isCreateMode && isFibonacciRetracement ? (
+                      <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                        <p className="text-xs text-slate-300">
+                          파라미터 입력 없이 차트에서 두 점을 클릭하면 되돌림이 즉시 표시됩니다.
+                        </p>
+                        {!fibRetChartPickActive && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFibRetPointMode("a");
+                              setFibRetChartPickActive(true);
+                              setFibRetPreviewEndPoint(null);
+                            }}
+                            className="mt-2 rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800/70"
+                          >
+                            되돌림 다시 그리기
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
+
+                    {isCreateMode && isFibonacciSpeedResistanceArcs ? (
+                      <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                        <p className="text-xs text-slate-300">
+                          파라미터 입력 없이 차트에서 두 점을 클릭하면 스피드 저항 아크가 즉시 표시됩니다.
+                        </p>
+                        {!fibSpeedArcsChartPickActive && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFibSpeedArcsPointMode("start");
+                              setFibSpeedArcsChartPickActive(true);
+                              setFibSpeedArcsPreviewEndPoint(null);
+                            }}
+                            className="mt-2 rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800/70"
+                          >
+                            아크 다시 그리기
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
+                    
                     {isCreateMode && isFibonacciCircles ? (
                       <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
                         <p className="text-xs text-slate-300">

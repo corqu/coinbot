@@ -1,6 +1,10 @@
 from dataclasses import dataclass
 
-from app.strategy.basic_startegy.fibonacci.common import FibAnchor, normalize_anchor
+from app.strategy.basic_startegy.fibonacci.common import (
+    DEFAULT_SPEED_RESISTANCE_FAN_RATIOS,
+    FibAnchor,
+    normalize_anchor,
+)
 
 
 @dataclass(frozen=True)
@@ -17,7 +21,7 @@ def fibonacci_speed_resistance_fan_rays_at(
 ) -> list[FibonacciFanRay]:
     a = normalize_anchor(start)
     b = normalize_anchor(end)
-    fib = ratios or [0.382, 0.5, 0.618]
+    fib = ratios or DEFAULT_SPEED_RESISTANCE_FAN_RATIOS
     dx = b.index - a.index
     if dx == 0:
         return []
