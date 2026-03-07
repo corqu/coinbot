@@ -18,11 +18,6 @@ from app.strategy.applied_startegy.fibonacci.fibonacci_speed_resistance_arcs_str
     run_backtest as fibonacci_speed_resistance_arcs_run_backtest,
     snapshot as fibonacci_speed_resistance_arcs_snapshot,
 )
-from app.strategy.applied_startegy.fibonacci.fibonacci_speed_resistance_fan_strategy import (
-    generate_signal as fibonacci_speed_resistance_fan_generate_signal,
-    run_backtest as fibonacci_speed_resistance_fan_run_backtest,
-    snapshot as fibonacci_speed_resistance_fan_snapshot,
-)
 from app.strategy.applied_startegy.fibonacci.fibonacci_spiral_strategy import (
     generate_signal as fibonacci_spiral_generate_signal,
     run_backtest as fibonacci_spiral_run_backtest,
@@ -56,9 +51,6 @@ __all__ = [
     "trend_fibonacci_extension_generate_signal",
     "trend_fibonacci_extension_snapshot",
     "trend_fibonacci_extension_run_backtest",
-    "fibonacci_speed_resistance_fan_generate_signal",
-    "fibonacci_speed_resistance_fan_snapshot",
-    "fibonacci_speed_resistance_fan_run_backtest",
     "fibonacci_time_zones_generate_signal",
     "fibonacci_time_zones_snapshot",
     "fibonacci_time_zones_run_backtest",

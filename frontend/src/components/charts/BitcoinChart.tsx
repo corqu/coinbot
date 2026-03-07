@@ -40,7 +40,7 @@ type CandleSummary = {
 };
 
 type DrawingToolKind = "trendline" | "fibonacci" | "gann" | "pitchfork";
-type FibonacciToolVariant = "channel" | "circle" | "retracement" | "speed-arcs";
+type FibonacciToolVariant = "channel" | "circle" | "retracement" | "speed-arcs" | "extension";
 
 type UserLineDrawing = {
   id: string;
@@ -99,6 +99,13 @@ export type FibonacciSpeedResistanceArcsOverlay = {
   ratios?: number[];
 };
 
+export type FibonacciExtensionOverlay = {
+  a?: ChartPickedPoint | null;
+  b?: ChartPickedPoint | null;
+  c?: ChartPickedPoint | null;
+  ratios?: number[];
+};
+
 type BitcoinChartProps = {
   enableDrawingTools?: boolean;
   overlays?: ChartOverlay[];
@@ -110,9 +117,12 @@ type BitcoinChartProps = {
   onFibonacciRetracementMove?: (next: { a: ChartPickedPoint; b: ChartPickedPoint }) => void;
   onFibonacciChannelPointDrag?: (target: "a" | "b" | "c", point: ChartPickedPoint) => void;
   onFibonacciChannelMove?: (next: { a: ChartPickedPoint; b: ChartPickedPoint; c: ChartPickedPoint }) => void;
+  onFibonacciExtensionPointDrag?: (target: "a" | "b" | "c", point: ChartPickedPoint) => void;
+  onFibonacciExtensionMove?: (next: { a: ChartPickedPoint; b: ChartPickedPoint; c: ChartPickedPoint }) => void;
   fibonacciCircleOverlay?: FibonacciCircleOverlay;
   fibonacciRetracementOverlay?: FibonacciRetracementOverlay;
   fibonacciChannelOverlay?: FibonacciChannelOverlay;
+  fibonacciExtensionOverlay?: FibonacciExtensionOverlay;
   fibonacciSpeedResistanceArcsOverlay?: FibonacciSpeedResistanceArcsOverlay;
   onFibonacciOverlayClick?: () => void;
   overlaySelectionEnabled?: boolean;
@@ -128,6 +138,7 @@ const FIB_RETRACEMENT_DEFAULT_RATIOS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]
 const FIB_RETRACEMENT_DEFAULT_EXT_RATIOS = [1.272, 1.618, 2.0];
 const FIB_CHANNEL_DEFAULT_RATIOS = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
 const FIB_CHANNEL_DEFAULT_EXT_RATIOS = [1.272, 1.618, 2.0];
+const FIB_EXTENSION_DEFAULT_RATIOS = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618, 2.0, 2.618];
 const FIB_SPEED_ARCS_DEFAULT_RATIOS = [0.382, 0.5, 0.618, 1.0];
 const MAIN_CHART_HEIGHT = 330;
 const INDICATOR_PANEL_HEIGHT = 130;
@@ -412,6 +423,7 @@ function resolveFibonacciToolVariant(selectedTool: string): FibonacciToolVariant
   if (selectedTool.endsWith(":서클")) return "circle";
   if (selectedTool.endsWith(":되돌림")) return "retracement";
   if (selectedTool.endsWith(":스피드저항아크")) return "speed-arcs";
+  if (selectedTool.endsWith(":확장")) return "extension";
   if (selectedTool.endsWith(":채널")) return "channel";
   return "channel";
 }
@@ -427,9 +439,12 @@ export function BitcoinChart({
   onFibonacciRetracementMove,
   onFibonacciChannelPointDrag,
   onFibonacciChannelMove,
+  onFibonacciExtensionPointDrag,
+  onFibonacciExtensionMove,
   fibonacciCircleOverlay,
   fibonacciRetracementOverlay,
   fibonacciChannelOverlay,
+  fibonacciExtensionOverlay,
   fibonacciSpeedResistanceArcsOverlay,
   onFibonacciOverlayClick,
   overlaySelectionEnabled = true,
@@ -467,6 +482,12 @@ export function BitcoinChart({
   >(
     onFibonacciChannelMove,
   );
+  const onFibonacciExtensionPointDragRef = useRef<
+    ((target: "a" | "b" | "c", point: ChartPickedPoint) => void) | undefined
+  >(onFibonacciExtensionPointDrag);
+  const onFibonacciExtensionMoveRef = useRef<
+    ((next: { a: ChartPickedPoint; b: ChartPickedPoint; c: ChartPickedPoint }) => void) | undefined
+  >(onFibonacciExtensionMove);
   const onFibonacciSpeedResistanceArcsPointDragRef = useRef<
     ((target: "start" | "end", point: ChartPickedPoint) => void) | undefined
   >(onFibonacciSpeedResistanceArcsPointDrag);
@@ -478,6 +499,7 @@ export function BitcoinChart({
   const fibonacciCircleRef = useRef<FibonacciCircleOverlay | undefined>(fibonacciCircleOverlay);
   const fibonacciRetracementRef = useRef<FibonacciRetracementOverlay | undefined>(fibonacciRetracementOverlay);
   const fibonacciChannelRef = useRef<FibonacciChannelOverlay | undefined>(fibonacciChannelOverlay);
+  const fibonacciExtensionRef = useRef<FibonacciExtensionOverlay | undefined>(fibonacciExtensionOverlay);
   const fibonacciSpeedArcsRef = useRef<FibonacciSpeedResistanceArcsOverlay | undefined>(fibonacciSpeedResistanceArcsOverlay);
   const fibSyncRafRef = useRef<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -496,6 +518,10 @@ export function BitcoinChart({
     | "channel-b"
     | "channel-c"
     | "channel-move"
+    | "extension-a"
+    | "extension-b"
+    | "extension-c"
+    | "extension-move"
     | "arcs-start"
     | "arcs-end"
     | "arcs-move"
@@ -571,6 +597,9 @@ export function BitcoinChart({
   const [toolFibonacciRetracementOverlay, setToolFibonacciRetracementOverlay] = useState<FibonacciRetracementOverlay | undefined>(
     undefined,
   );
+  const [toolFibonacciExtensionOverlay, setToolFibonacciExtensionOverlay] = useState<FibonacciExtensionOverlay | undefined>(
+    undefined,
+  );
   const [toolFibonacciSpeedArcsOverlay, setToolFibonacciSpeedArcsOverlay] = useState<FibonacciSpeedResistanceArcsOverlay | undefined>(
     undefined,
   );
@@ -579,6 +608,7 @@ export function BitcoinChart({
   const effectiveFibonacciCircleOverlay = toolFibonacciCircleOverlay ?? fibonacciCircleOverlay;
   const effectiveFibonacciRetracementOverlay = toolFibonacciRetracementOverlay ?? fibonacciRetracementOverlay;
   const effectiveFibonacciSpeedArcsOverlay = toolFibonacciSpeedArcsOverlay ?? fibonacciSpeedResistanceArcsOverlay;
+  const effectiveFibonacciExtensionOverlay = toolFibonacciExtensionOverlay ?? fibonacciExtensionOverlay;
   const activeToolKindRef = useRef<DrawingToolKind | null>(activeToolKind);
   const selectedToolRef = useRef<string>(selectedTool);
   const userDrawingsRef = useRef<UserLineDrawing[]>(userDrawings);
@@ -597,6 +627,7 @@ export function BitcoinChart({
   const toolFibonacciOverlayRef = useRef<FibonacciChannelOverlay | undefined>(toolFibonacciOverlay);
   const toolFibonacciCircleOverlayRef = useRef<FibonacciCircleOverlay | undefined>(toolFibonacciCircleOverlay);
   const toolFibonacciRetracementOverlayRef = useRef<FibonacciRetracementOverlay | undefined>(toolFibonacciRetracementOverlay);
+  const toolFibonacciExtensionOverlayRef = useRef<FibonacciExtensionOverlay | undefined>(toolFibonacciExtensionOverlay);
   const toolFibonacciSpeedArcsOverlayRef = useRef<FibonacciSpeedResistanceArcsOverlay | undefined>(toolFibonacciSpeedArcsOverlay);
 
   useEffect(() => {
@@ -638,6 +669,10 @@ export function BitcoinChart({
   useEffect(() => {
     toolFibonacciRetracementOverlayRef.current = toolFibonacciRetracementOverlay;
   }, [toolFibonacciRetracementOverlay]);
+
+  useEffect(() => {
+    toolFibonacciExtensionOverlayRef.current = toolFibonacciExtensionOverlay;
+  }, [toolFibonacciExtensionOverlay]);
 
   useEffect(() => {
     toolFibonacciSpeedArcsOverlayRef.current = toolFibonacciSpeedArcsOverlay;
@@ -837,6 +872,110 @@ export function BitcoinChart({
       .filter((band: any): band is NonNullable<ReturnType<typeof toRetracementLine>> => band !== null);
 
     return { ax, ay, bx, by, bands };
+  }, []);
+
+  const computeFibonacciExtensionScreenGeometry = useCallback(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    const overlay = fibonacciExtensionRef.current;
+    const candles = candlesRef.current;
+    const container = containerRef.current;
+    if (!chart || !series || !overlay?.a || overlay.a.ts === null || !container || candles.length === 0) return null;
+
+    const ax = pointTsToXCoordinate(chart, candles, overlay.a.ts);
+    const ay = series.priceToCoordinate(overlay.a.price);
+    if (ax === null || ay === null) return null;
+
+    if (!overlay.b || overlay.b.ts === null) {
+      return {
+        ax,
+        ay,
+        bx: null as number | null,
+        by: null as number | null,
+        cx: null as number | null,
+        cy: null as number | null,
+        zeroGuidePath: "",
+        levels: [] as Array<{ ratio: number; price: number; y: number; points: ScreenPoint[]; path: string; strokeOpacity: number }>,
+        preview: true,
+        rightX: Math.max(0, container.clientWidth - PRICE_SCALE_RESERVED),
+      };
+    }
+
+    const bx = pointTsToXCoordinate(chart, candles, overlay.b.ts);
+    const by = series.priceToCoordinate(overlay.b.price);
+    if (bx === null || by === null) return null;
+
+    if (!overlay.c || overlay.c.ts === null) {
+      return {
+        ax,
+        ay,
+        bx,
+        by,
+        cx: null as number | null,
+        cy: null as number | null,
+        zeroGuidePath: "",
+        levels: [] as Array<{ ratio: number; price: number; y: number; points: ScreenPoint[]; path: string; strokeOpacity: number }>,
+        preview: true,
+        rightX: Math.max(0, container.clientWidth - PRICE_SCALE_RESERVED),
+      };
+    }
+
+    const cx = pointTsToXCoordinate(chart, candles, overlay.c.ts);
+    const cy = series.priceToCoordinate(overlay.c.price);
+    if (cx === null || cy === null) return null;
+
+    const plotRightX = Math.max(0, container.clientWidth - PRICE_SCALE_RESERVED);
+    const spanAB = Math.max(40, Math.abs(bx - ax));
+    const spanAC = Math.max(40, Math.abs(cx - ax));
+    const extensionLength = Math.min(420, Math.max(140, Math.max(spanAB, spanAC) * 2.0));
+    const leftX = cx;
+    const rightX = Math.min(plotRightX, cx + extensionLength);
+    const move = overlay.b.price - overlay.a.price;
+    const ratios =
+      overlay.ratios && overlay.ratios.length > 0
+        ? overlay.ratios.filter((ratio) => Number.isFinite(ratio) && ratio >= 0)
+        : FIB_EXTENSION_DEFAULT_RATIOS;
+
+    const levels = ratios
+      .map((ratio, idx) => {
+        const price = overlay.c!.price + move * ratio;
+        const y = series.priceToCoordinate(price);
+        if (y === null) return null;
+        const points = [
+          { x: leftX, y },
+          { x: rightX, y },
+        ];
+        return {
+          ratio,
+          price,
+          y,
+          points,
+          path: pointsToPath(points),
+          strokeOpacity: Math.max(0.2, 0.9 - idx * 0.08),
+        };
+      })
+      .filter(
+        (
+          level,
+        ): level is { ratio: number; price: number; y: number; points: ScreenPoint[]; path: string; strokeOpacity: number } =>
+          level !== null,
+      );
+
+    return {
+      ax,
+      ay,
+      bx,
+      by,
+      cx,
+      cy,
+      zeroGuidePath: pointsToPath([
+        { x: ax, y: cy },
+        { x: cx, y: cy },
+      ]),
+      levels,
+      preview: false,
+      rightX,
+    };
   }, []);
 
   const computeFibonacciChannelScreenGeometry = useCallback(() => {
@@ -1069,6 +1208,7 @@ export function BitcoinChart({
     const circleGeometry = computeFibonacciScreenGeometry();
     const channelGeometry = computeFibonacciChannelScreenGeometry();
     const retracementGeometry = computeFibonacciRetracementScreenGeometry();
+    const extensionGeometry = computeFibonacciExtensionScreenGeometry();
     const speedArcsGeometry = computeFibonacciSpeedArcsScreenGeometry();
 
     const circlePaths = circleGeometry
@@ -1161,6 +1301,63 @@ export function BitcoinChart({
       <line x1="${speedArcsGeometry.cx}" y1="${speedArcsGeometry.cy}" x2="${speedArcsGeometry.rx}" y2="${speedArcsGeometry.ry}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" fill="none" />
       <circle cx="${speedArcsGeometry.cx}" cy="${speedArcsGeometry.cy}" r="4" fill="#22c55e" />
       <circle cx="${speedArcsGeometry.rx}" cy="${speedArcsGeometry.ry}" r="4" fill="#f97316" />
+    `
+      : "";
+
+    const extensionPaths = extensionGeometry
+      ? extensionGeometry.levels
+          .map((level) => {
+            const isBase = Math.abs(level.ratio - 1.0) < 1e-9;
+            const color = isBase ? "#f8fafc" : "#38bdf8";
+            const widthStroke = isBase ? 1.8 : 1.2;
+            const dash = isBase ? "" : ' stroke-dasharray="6 4"';
+            return `<path d="${level.path}" fill="none" stroke="${color}" stroke-width="${widthStroke}" stroke-opacity="${level.strokeOpacity}"${dash} />`;
+          })
+          .join("")
+      : "";
+
+    const extensionLabels = extensionGeometry
+      ? extensionGeometry.levels
+          .map((level) => {
+            const labelX = extensionGeometry.rightX + 6;
+            return `<text x="${labelX}" y="${level.y}" text-anchor="start" dominant-baseline="middle" fill="#cbd5e1" font-size="10" font-weight="500" paint-order="stroke" stroke="#020617" stroke-width="2">${formatFibRatio(
+              level.ratio,
+            )} (${formatPrice(level.price)})</text>`;
+          })
+          .join("")
+      : "";
+
+    const extensionControls = extensionGeometry
+      ? `
+      ${
+        extensionGeometry.zeroGuidePath
+          ? `<path d="${extensionGeometry.zeroGuidePath}" stroke="#64748b" stroke-width="1" stroke-dasharray="5 4" fill="none" />`
+          : ""
+      }
+      ${
+        extensionGeometry.bx !== null && extensionGeometry.by !== null
+          ? `<line x1="${extensionGeometry.ax}" y1="${extensionGeometry.ay}" x2="${extensionGeometry.bx}" y2="${extensionGeometry.by}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" fill="none" />`
+          : ""
+      }
+      ${
+        extensionGeometry.bx !== null &&
+        extensionGeometry.by !== null &&
+        extensionGeometry.cx !== null &&
+        extensionGeometry.cy !== null
+          ? `<line x1="${extensionGeometry.bx}" y1="${extensionGeometry.by}" x2="${extensionGeometry.cx}" y2="${extensionGeometry.cy}" stroke="#64748b" stroke-width="1" stroke-dasharray="4 4" fill="none" />`
+          : ""
+      }
+      <circle cx="${extensionGeometry.ax}" cy="${extensionGeometry.ay}" r="4" fill="#22c55e" />
+      ${
+        extensionGeometry.bx !== null && extensionGeometry.by !== null
+          ? `<circle cx="${extensionGeometry.bx}" cy="${extensionGeometry.by}" r="4" fill="#f97316" />`
+          : ""
+      }
+      ${
+        extensionGeometry.cx !== null && extensionGeometry.cy !== null
+          ? `<circle cx="${extensionGeometry.cx}" cy="${extensionGeometry.cy}" r="4" fill="#38bdf8" />`
+          : ""
+      }
     `
       : "";
 
@@ -1316,6 +1513,7 @@ export function BitcoinChart({
       Boolean(circleGeometry) ||
       Boolean(channelGeometry) ||
       Boolean(retracementGeometry) ||
+      Boolean(extensionGeometry) ||
       Boolean(speedArcsGeometry) ||
       Boolean(linePaths) ||
       Boolean(pendingLinePath);
@@ -1333,6 +1531,8 @@ export function BitcoinChart({
       ${channelLabels}
       ${retracementPaths}
       ${retracementLabels}
+      ${extensionPaths}
+      ${extensionLabels}
       ${speedArcsPaths}
       ${speedArcsLabels}
       ${linePaths}
@@ -1343,6 +1543,7 @@ export function BitcoinChart({
       ${channelControls}
       ${circleControls}
       ${retracementControls}
+      ${extensionControls}
       ${speedArcsControls}
     `;
     if (nextMarkup === lastSvgMarkupRef.current) return;
@@ -1352,6 +1553,7 @@ export function BitcoinChart({
     computeFibonacciChannelScreenGeometry,
     computeFibonacciScreenGeometry,
     computeFibonacciRetracementScreenGeometry,
+    computeFibonacciExtensionScreenGeometry,
     computeFibonacciSpeedArcsScreenGeometry,
   ]);
 
@@ -1443,6 +1645,32 @@ export function BitcoinChart({
     return nearest.key;
   }, [getFibonacciChannelControlPoints]);
 
+  const pickFibonacciExtensionHandle = useCallback((x: number, y: number): "a" | "b" | "c" | null => {
+    const geometry = computeFibonacciExtensionScreenGeometry();
+    if (!geometry) return null;
+    const distances: Array<{ key: "a" | "b" | "c"; value: number }> = [
+      { key: "a", value: Math.hypot(x - geometry.ax, y - geometry.ay) },
+      {
+        key: "b",
+        value:
+          geometry.bx === null || geometry.by === null
+            ? Number.POSITIVE_INFINITY
+            : Math.hypot(x - geometry.bx, y - geometry.by),
+      },
+      {
+        key: "c",
+        value:
+          geometry.cx === null || geometry.cy === null
+            ? Number.POSITIVE_INFINITY
+            : Math.hypot(x - geometry.cx, y - geometry.cy),
+      },
+    ];
+    const hitRadius = 10;
+    const nearest = distances.reduce((best, item) => (item.value < best.value ? item : best), distances[0]);
+    if (nearest.value > hitRadius) return null;
+    return nearest.key;
+  }, [computeFibonacciExtensionScreenGeometry]);
+
   const toPickedPointFromCoordinate = useCallback((x: number, y: number): ChartPickedPoint | null => {
     const chart = chartRef.current;
     const series = seriesRef.current;
@@ -1509,6 +1737,44 @@ export function BitcoinChart({
     );
     return anyBandHit;
   }, [computeFibonacciChannelScreenGeometry, pickFibonacciChannelHandle]);
+
+  const hitTestFibonacciExtensionOverlay = useCallback(
+    (x: number, y: number) => {
+      const geometry = computeFibonacciExtensionScreenGeometry();
+      if (!geometry) return false;
+      if (pickFibonacciExtensionHandle(x, y)) return true;
+      if (geometry.levels.some((level) => minDistanceToPolyline(level.points, x, y) <= 6)) return true;
+      if (geometry.bx !== null && geometry.by !== null) {
+        const ab = minDistanceToPolyline(
+          [
+            { x: geometry.ax, y: geometry.ay },
+            { x: geometry.bx, y: geometry.by },
+          ],
+          x,
+          y,
+        );
+        if (ab <= 6) return true;
+      }
+      if (
+        geometry.bx !== null &&
+        geometry.by !== null &&
+        geometry.cx !== null &&
+        geometry.cy !== null
+      ) {
+        const bc = minDistanceToPolyline(
+          [
+            { x: geometry.bx, y: geometry.by },
+            { x: geometry.cx, y: geometry.cy },
+          ],
+          x,
+          y,
+        );
+        if (bc <= 6) return true;
+      }
+      return false;
+    },
+    [computeFibonacciExtensionScreenGeometry, pickFibonacciExtensionHandle],
+  );
 
   const hitTestFibonacciRetracementOverlay = useCallback(
     (x: number, y: number) => {
@@ -1600,6 +1866,30 @@ export function BitcoinChart({
           ts: Math.floor(session.cTs + deltaTs),
           price: rounded(session.cPrice + deltaPrice),
         },
+      };
+    },
+    [],
+  );
+
+  const computeMovedExtensionPoints = useCallback(
+    (x: number, y: number): { a: ChartPickedPoint; b: ChartPickedPoint; c: ChartPickedPoint } | null => {
+      const session = channelMoveSessionRef.current;
+      const series = seriesRef.current;
+      if (!session || !series) return null;
+      const candles = candlesRef.current;
+      const chart = chartRef.current;
+      if (!chart || candles.length === 0) return null;
+
+      const currentTs = inferTsFromCoordinate(chart, candles, x);
+      const currentPrice = series.coordinateToPrice(y);
+      if (currentTs === null || currentPrice === null || !Number.isFinite(currentPrice)) return null;
+      const deltaTs = currentTs - session.grabTs;
+      const deltaPrice = rounded(currentPrice - session.grabPrice);
+
+      return {
+        a: { ts: Math.floor(session.aTs + deltaTs), price: rounded(session.aPrice + deltaPrice) },
+        b: { ts: Math.floor(session.bTs + deltaTs), price: rounded(session.bPrice + deltaPrice) },
+        c: { ts: Math.floor(session.cTs + deltaTs), price: rounded(session.cPrice + deltaPrice) },
       };
     },
     [],
@@ -1810,6 +2100,30 @@ export function BitcoinChart({
     });
   }, []);
 
+  const applyExtensionPointUpdate = useCallback((target: "a" | "b" | "c", point: ChartPickedPoint) => {
+    const isToolExtensionActive = Boolean(toolFibonacciExtensionOverlayRef.current);
+    if (!isToolExtensionActive && onFibonacciExtensionPointDragRef.current) {
+      onFibonacciExtensionPointDragRef.current(target, point);
+      return;
+    }
+    setToolFibonacciExtensionOverlay((prev) => {
+      if (!prev) return prev;
+      return { ...prev, [target]: point };
+    });
+  }, []);
+
+  const applyExtensionMoveUpdate = useCallback((next: { a: ChartPickedPoint; b: ChartPickedPoint; c: ChartPickedPoint }) => {
+    const isToolExtensionActive = Boolean(toolFibonacciExtensionOverlayRef.current);
+    if (!isToolExtensionActive && onFibonacciExtensionMoveRef.current) {
+      onFibonacciExtensionMoveRef.current(next);
+      return;
+    }
+    setToolFibonacciExtensionOverlay((prev) => {
+      if (!prev) return prev;
+      return { ...prev, a: next.a, b: next.b, c: next.c };
+    });
+  }, []);
+
   const pickUserDrawingHit = useCallback((x: number, y: number): { id: string; target: "start" | "end" | "line" } | null => {
     const geometries = drawingGeometriesRef.current;
     const selectedId = selectedDrawingIdRef.current;
@@ -1851,6 +2165,7 @@ export function BitcoinChart({
     setToolFibonacciOverlay(undefined);
     setToolFibonacciCircleOverlay(undefined);
     setToolFibonacciRetracementOverlay(undefined);
+    setToolFibonacciExtensionOverlay(undefined);
     setToolFibonacciSpeedArcsOverlay(undefined);
     setSelectedToolFibonacci(false);
     setPendingDrawingStart(null);
@@ -1985,6 +2300,16 @@ export function BitcoinChart({
               end: hoveredPoint,
               ratios: FIB_SPEED_ARCS_DEFAULT_RATIOS,
             });
+          } else if (fibVariant === "extension") {
+            const currentOverlay = toolFibonacciExtensionOverlayRef.current ?? fibonacciExtensionRef.current;
+            const aPoint = currentPendingStart;
+            const bPoint = currentOverlay?.b ?? null;
+            setToolFibonacciExtensionOverlay({
+              a: aPoint,
+              b: bPoint,
+              c: hoveredPoint,
+              ratios: FIB_EXTENSION_DEFAULT_RATIOS,
+            });
           } else {
             const currentOverlay = fibonacciChannelRef.current;
             const aPoint = currentPendingStart;
@@ -2034,6 +2359,8 @@ export function BitcoinChart({
               currentPendingStart = toolFibonacciRetracementOverlayRef.current?.a ?? null;
             } else if (fibVariant === "speed-arcs") {
               currentPendingStart = toolFibonacciSpeedArcsOverlayRef.current?.start ?? null;
+            } else if (fibVariant === "extension") {
+              currentPendingStart = toolFibonacciExtensionOverlayRef.current?.a ?? null;
             } else {
               currentPendingStart = toolFibonacciOverlayRef.current?.a ?? null;
             }
@@ -2069,6 +2396,15 @@ export function BitcoinChart({
                   };
                   toolFibonacciSpeedArcsOverlayRef.current = nextSpeedArcsOverlay;
                   setToolFibonacciSpeedArcsOverlay(nextSpeedArcsOverlay);
+                } else if (fibVariant === "extension") {
+                  const nextExtensionOverlay: FibonacciExtensionOverlay = {
+                    a: pickedPoint,
+                    b: undefined,
+                    c: undefined,
+                    ratios: FIB_EXTENSION_DEFAULT_RATIOS,
+                  };
+                  toolFibonacciExtensionOverlayRef.current = nextExtensionOverlay;
+                  setToolFibonacciExtensionOverlay(nextExtensionOverlay);
                 } else {
                   const nextChannelOverlay: FibonacciChannelOverlay = {
                     a: pickedPoint,
@@ -2112,6 +2448,31 @@ export function BitcoinChart({
                 };
                 toolFibonacciSpeedArcsOverlayRef.current = nextSpeedArcsOverlay;
                 setToolFibonacciSpeedArcsOverlay(nextSpeedArcsOverlay);
+              } else if (fibVariant === "extension") {
+                const currentOverlay = toolFibonacciExtensionOverlayRef.current ?? fibonacciExtensionRef.current;
+                const currentB = currentOverlay?.b;
+                if (!currentB) {
+                  lastPickAtRef.current = Date.now();
+                  const nextExtensionOverlay: FibonacciExtensionOverlay = {
+                    a: currentPendingStart,
+                    b: pickedPoint,
+                    c: undefined,
+                    ratios: FIB_EXTENSION_DEFAULT_RATIOS,
+                  };
+                  toolFibonacciExtensionOverlayRef.current = nextExtensionOverlay;
+                  setToolFibonacciExtensionOverlay(nextExtensionOverlay);
+                  return;
+                }
+
+                lastPickAtRef.current = Date.now();
+                const nextExtensionOverlay: FibonacciExtensionOverlay = {
+                  a: currentPendingStart,
+                  b: currentB,
+                  c: pickedPoint,
+                  ratios: FIB_EXTENSION_DEFAULT_RATIOS,
+                };
+                toolFibonacciExtensionOverlayRef.current = nextExtensionOverlay;
+                setToolFibonacciExtensionOverlay(nextExtensionOverlay);
               } else {
                 const currentOverlay = fibonacciChannelRef.current;
                 const currentB = currentOverlay?.b;
@@ -2206,6 +2567,7 @@ export function BitcoinChart({
       const activeToolChannelOverlay = toolFibonacciOverlayRef.current;
       const activeToolCircleOverlay = toolFibonacciCircleOverlayRef.current;
       const activeToolRetracementOverlay = toolFibonacciRetracementOverlayRef.current;
+      const activeToolExtensionOverlay = toolFibonacciExtensionOverlayRef.current;
       const activeToolSpeedArcsOverlay = toolFibonacciSpeedArcsOverlayRef.current;
       const hasToolChannelOverlay = Boolean(
         enableDrawingTools && activeToolChannelOverlay?.a && activeToolChannelOverlay?.b && activeToolChannelOverlay?.c,
@@ -2216,6 +2578,9 @@ export function BitcoinChart({
       const hasToolRetracementOverlay = Boolean(
         enableDrawingTools && activeToolRetracementOverlay?.a && activeToolRetracementOverlay?.b,
       );
+      const hasToolExtensionOverlay = Boolean(
+        enableDrawingTools && activeToolExtensionOverlay?.a && activeToolExtensionOverlay?.b && activeToolExtensionOverlay?.c,
+      );
       const hasToolSpeedArcsOverlay = Boolean(
         enableDrawingTools && activeToolSpeedArcsOverlay?.start && activeToolSpeedArcsOverlay?.end,
       );
@@ -2223,6 +2588,7 @@ export function BitcoinChart({
         (hasToolChannelOverlay && hitTestFibonacciChannelOverlay(x, y)) ||
         (hasToolCircleOverlay && hitTestFibonacciOverlay(x, y)) ||
         (hasToolRetracementOverlay && hitTestFibonacciRetracementOverlay(x, y)) ||
+        (hasToolExtensionOverlay && hitTestFibonacciExtensionOverlay(x, y)) ||
         (hasToolSpeedArcsOverlay && hitTestFibonacciSpeedArcsOverlay(x, y))
       ) {
         setSelectedToolFibonacci(true);
@@ -2238,6 +2604,7 @@ export function BitcoinChart({
         (hitTestFibonacciOverlay(x, y) ||
           hitTestFibonacciChannelOverlay(x, y) ||
           hitTestFibonacciRetracementOverlay(x, y) ||
+          hitTestFibonacciExtensionOverlay(x, y) ||
           hitTestFibonacciSpeedArcsOverlay(x, y))
       ) {
         setSelectedToolFibonacci(true);
@@ -2335,6 +2702,8 @@ export function BitcoinChart({
       const channelHit = hitTestFibonacciChannelOverlay(x, y);
       const retracementTarget = pickFibonacciRetracementHandle(x, y);
       const retracementHit = hitTestFibonacciRetracementOverlay(x, y);
+      const extensionTarget = pickFibonacciExtensionHandle(x, y);
+      const extensionHit = hitTestFibonacciExtensionOverlay(x, y);
       const speedArcsTarget = pickFibonacciSpeedArcsHandle(x, y);
       const speedArcsHit = hitTestFibonacciSpeedArcsOverlay(x, y);
       if (
@@ -2344,6 +2713,8 @@ export function BitcoinChart({
         !fibHit &&
         !retracementTarget &&
         !retracementHit &&
+        !extensionTarget &&
+        !extensionHit &&
         !speedArcsTarget &&
         !speedArcsHit
       ) {
@@ -2365,6 +2736,11 @@ export function BitcoinChart({
         setSelectedToolFibonacci(true);
         setSelectedDrawingId(null);
         fibDragTargetRef.current = retracementTarget === "a" ? "retracement-a" : "retracement-b";
+      } else if (extensionTarget) {
+        setSelectedToolFibonacci(true);
+        setSelectedDrawingId(null);
+        fibDragTargetRef.current =
+          extensionTarget === "a" ? "extension-a" : extensionTarget === "b" ? "extension-b" : "extension-c";
       } else if (speedArcsTarget) {
         setSelectedToolFibonacci(true);
         setSelectedDrawingId(null);
@@ -2426,6 +2802,27 @@ export function BitcoinChart({
         setSelectedToolFibonacci(true);
         setSelectedDrawingId(null);
         fibDragTargetRef.current = "retracement-move";
+      } else if (extensionHit) {
+        const ext = fibonacciExtensionRef.current;
+        const point = toPickedPointFromCoordinate(x, y);
+        if (!ext?.a || !ext?.b || !ext?.c || !point || point.ts === null) return;
+        const aTs = ext.a.ts;
+        const bTs = ext.b.ts;
+        const cTs = ext.c.ts;
+        if (aTs === null || bTs === null || cTs === null) return;
+        channelMoveSessionRef.current = {
+          aTs,
+          bTs,
+          cTs,
+          aPrice: ext.a.price,
+          bPrice: ext.b.price,
+          cPrice: ext.c.price,
+          grabTs: point.ts,
+          grabPrice: point.price,
+        };
+        setSelectedToolFibonacci(true);
+        setSelectedDrawingId(null);
+        fibDragTargetRef.current = "extension-move";
       } else if (speedArcsHit) {
         const arcs = fibonacciSpeedArcsRef.current;
         const point = toPickedPointFromCoordinate(x, y);
@@ -2550,6 +2947,16 @@ export function BitcoinChart({
           event.stopPropagation();
           return;
         }
+        if (activeTarget === "extension-move") {
+          const moved = computeMovedExtensionPoints(x, y);
+          if (!moved) return;
+          fibDragMovedRef.current = true;
+          lastFibDragAtRef.current = Date.now();
+          applyExtensionMoveUpdate(moved);
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
 
         const point = toPickedPointFromCoordinate(x, y);
         if (!point) return;
@@ -2576,6 +2983,9 @@ export function BitcoinChart({
         } else if (activeTarget === "arcs-start" || activeTarget === "arcs-end") {
           const target = activeTarget === "arcs-start" ? "start" : "end";
           applySpeedArcsPointUpdate(target, point);
+        } else if (activeTarget === "extension-a" || activeTarget === "extension-b" || activeTarget === "extension-c") {
+          const target = activeTarget === "extension-a" ? "a" : activeTarget === "extension-b" ? "b" : "c";
+          applyExtensionPointUpdate(target, point);
         } else {
           const target = activeTarget === "channel-a" ? "a" : activeTarget === "channel-b" ? "b" : "c";
           applyChannelPointUpdate(target, point);
@@ -2594,14 +3004,17 @@ export function BitcoinChart({
       const hoverFibTarget = pickFibonacciHandle(x, y);
       const hoverChannelTarget = pickFibonacciChannelHandle(x, y);
       const hoverRetracementTarget = pickFibonacciRetracementHandle(x, y);
+      const hoverExtensionTarget = pickFibonacciExtensionHandle(x, y);
       const hoverSpeedArcsTarget = pickFibonacciSpeedArcsHandle(x, y);
-      if (hoverFibTarget || hoverChannelTarget || hoverRetracementTarget || hoverSpeedArcsTarget) {
+      if (hoverFibTarget || hoverChannelTarget || hoverRetracementTarget || hoverExtensionTarget || hoverSpeedArcsTarget) {
         container.style.cursor = "grab";
       } else if (hitTestFibonacciOverlay(x, y)) {
         container.style.cursor = "move";
       } else if (hitTestFibonacciChannelOverlay(x, y)) {
         container.style.cursor = "move";
       } else if (hitTestFibonacciRetracementOverlay(x, y)) {
+        container.style.cursor = "move";
+      } else if (hitTestFibonacciExtensionOverlay(x, y)) {
         container.style.cursor = "move";
       } else if (hitTestFibonacciSpeedArcsOverlay(x, y)) {
         container.style.cursor = "move";
@@ -2686,6 +3099,16 @@ export function BitcoinChart({
         event.stopPropagation();
         return;
       }
+      if (activeTarget === "extension-move") {
+        const moved = computeMovedExtensionPoints(x, y);
+        if (!moved) return;
+        fibDragMovedRef.current = true;
+        lastFibDragAtRef.current = Date.now();
+        applyExtensionMoveUpdate(moved);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       const point = toPickedPointFromCoordinate(x, y);
       if (!point) return;
       fibDragMovedRef.current = true;
@@ -2711,6 +3134,9 @@ export function BitcoinChart({
       } else if (activeTarget === "arcs-start" || activeTarget === "arcs-end") {
         const target = activeTarget === "arcs-start" ? "start" : "end";
         applySpeedArcsPointUpdate(target, point);
+      } else if (activeTarget === "extension-a" || activeTarget === "extension-b" || activeTarget === "extension-c") {
+        const target = activeTarget === "extension-a" ? "a" : activeTarget === "extension-b" ? "b" : "c";
+        applyExtensionPointUpdate(target, point);
       } else {
         const target = activeTarget === "channel-a" ? "a" : activeTarget === "channel-b" ? "b" : "c";
         applyChannelPointUpdate(target, point);
@@ -2913,6 +3339,14 @@ export function BitcoinChart({
   }, [onFibonacciChannelMove]);
 
   useEffect(() => {
+    onFibonacciExtensionPointDragRef.current = onFibonacciExtensionPointDrag;
+  }, [onFibonacciExtensionPointDrag]);
+
+  useEffect(() => {
+    onFibonacciExtensionMoveRef.current = onFibonacciExtensionMove;
+  }, [onFibonacciExtensionMove]);
+
+  useEffect(() => {
     onFibonacciSpeedResistanceArcsPointDragRef.current = onFibonacciSpeedResistanceArcsPointDrag;
   }, [onFibonacciSpeedResistanceArcsPointDrag]);
 
@@ -2944,6 +3378,11 @@ export function BitcoinChart({
   }, [effectiveFibonacciChannelOverlay, requestFibonacciSync]);
 
   useEffect(() => {
+    fibonacciExtensionRef.current = effectiveFibonacciExtensionOverlay;
+    requestFibonacciSync();
+  }, [effectiveFibonacciExtensionOverlay, requestFibonacciSync]);
+
+  useEffect(() => {
     fibonacciSpeedArcsRef.current = effectiveFibonacciSpeedArcsOverlay;
     requestFibonacciSync();
   }, [effectiveFibonacciSpeedArcsOverlay, requestFibonacciSync]);
@@ -2959,6 +3398,7 @@ export function BitcoinChart({
     toolFibonacciOverlay,
     toolFibonacciCircleOverlay,
     toolFibonacciRetracementOverlay,
+    toolFibonacciExtensionOverlay,
     toolFibonacciSpeedArcsOverlay,
     userDrawings,
   ]);
