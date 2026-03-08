@@ -588,6 +588,7 @@ export function BitcoinChart({
   const [userDrawings, setUserDrawings] = useState<UserLineDrawing[]>([]);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [selectedToolFibonacci, setSelectedToolFibonacci] = useState(false);
+  const [selectedToolFibonacciVariant, setSelectedToolFibonacciVariant] = useState<FibonacciToolVariant | null>(null);
   const [pendingDrawingStart, setPendingDrawingStart] = useState<ChartPickedPoint | null>(null);
   const [pendingDrawingHover, setPendingDrawingHover] = useState<ChartPickedPoint | null>(null);
   const [toolFibonacciOverlay, setToolFibonacciOverlay] = useState<FibonacciChannelOverlay | undefined>(undefined);
@@ -624,6 +625,7 @@ export function BitcoinChart({
   const pendingDrawingStartRef = useRef<ChartPickedPoint | null>(pendingDrawingStart);
   const pendingDrawingHoverRef = useRef<ChartPickedPoint | null>(pendingDrawingHover);
   const selectedToolFibonacciRef = useRef<boolean>(selectedToolFibonacci);
+  const selectedToolFibonacciVariantRef = useRef<FibonacciToolVariant | null>(selectedToolFibonacciVariant);
   const toolFibonacciOverlayRef = useRef<FibonacciChannelOverlay | undefined>(toolFibonacciOverlay);
   const toolFibonacciCircleOverlayRef = useRef<FibonacciCircleOverlay | undefined>(toolFibonacciCircleOverlay);
   const toolFibonacciRetracementOverlayRef = useRef<FibonacciRetracementOverlay | undefined>(toolFibonacciRetracementOverlay);
@@ -635,6 +637,7 @@ export function BitcoinChart({
     setPendingDrawingHover(null);
     if (selectedTool !== "") {
       setSelectedToolFibonacci(false);
+      setSelectedToolFibonacciVariant(null);
     }
   }, [selectedTool]);
 
@@ -657,6 +660,10 @@ export function BitcoinChart({
   useEffect(() => {
     selectedToolFibonacciRef.current = selectedToolFibonacci;
   }, [selectedToolFibonacci]);
+
+  useEffect(() => {
+    selectedToolFibonacciVariantRef.current = selectedToolFibonacciVariant;
+  }, [selectedToolFibonacciVariant]);
 
   useEffect(() => {
     toolFibonacciOverlayRef.current = toolFibonacciOverlay;
@@ -1232,7 +1239,9 @@ export function BitcoinChart({
           .join("")
       : "";
 
-    const circleControls = circleGeometry
+    const showCircleControls =
+      selectedToolFibonacciRef.current && selectedToolFibonacciVariantRef.current === "circle";
+    const circleControls = circleGeometry && showCircleControls
       ? `
       <circle cx="${circleGeometry.cx}" cy="${circleGeometry.cy}" r="4" fill="#22c55e" />
       <circle cx="${circleGeometry.ex}" cy="${circleGeometry.ey}" r="4" fill="#f97316" />
@@ -1264,7 +1273,9 @@ export function BitcoinChart({
           .join("")
       : "";
 
-    const retracementControls = retracementGeometry
+    const showRetracementControls =
+      selectedToolFibonacciRef.current && selectedToolFibonacciVariantRef.current === "retracement";
+    const retracementControls = retracementGeometry && showRetracementControls
       ? `
       <line x1="${retracementGeometry.ax}" y1="${retracementGeometry.ay}" x2="${retracementGeometry.bx}" y2="${retracementGeometry.by}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" fill="none" />
       <circle cx="${retracementGeometry.ax}" cy="${retracementGeometry.ay}" r="4" fill="#22c55e" />
@@ -1296,7 +1307,9 @@ export function BitcoinChart({
           .join("")
       : "";
 
-    const speedArcsControls = speedArcsGeometry
+    const showSpeedArcsControls =
+      selectedToolFibonacciRef.current && selectedToolFibonacciVariantRef.current === "speed-arcs";
+    const speedArcsControls = speedArcsGeometry && showSpeedArcsControls
       ? `
       <line x1="${speedArcsGeometry.cx}" y1="${speedArcsGeometry.cy}" x2="${speedArcsGeometry.rx}" y2="${speedArcsGeometry.ry}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" fill="none" />
       <circle cx="${speedArcsGeometry.cx}" cy="${speedArcsGeometry.cy}" r="4" fill="#22c55e" />
@@ -1327,7 +1340,9 @@ export function BitcoinChart({
           .join("")
       : "";
 
-    const extensionControls = extensionGeometry
+    const showExtensionControls =
+      selectedToolFibonacciRef.current && selectedToolFibonacciVariantRef.current === "extension";
+    const extensionControls = extensionGeometry && showExtensionControls
       ? `
       ${
         extensionGeometry.zeroGuidePath
@@ -1406,7 +1421,9 @@ export function BitcoinChart({
           .join("")
       : "";
 
-    const channelControls = channelGeometry
+    const showChannelControls =
+      selectedToolFibonacciRef.current && selectedToolFibonacciVariantRef.current === "channel";
+    const channelControls = channelGeometry && showChannelControls
       ? `
       <path d="${channelGeometry.basePath}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" fill="none" />
       <path d="${channelGeometry.leftBoundaryPath}" stroke="#64748b" stroke-width="1" stroke-opacity="0.8" fill="none" />
@@ -2161,13 +2178,27 @@ export function BitcoinChart({
 
   const handleDeleteSelectedFibonacci = useCallback(() => {
     if (!selectedToolFibonacciRef.current) return;
-    onFibonacciDelete?.();
-    setToolFibonacciOverlay(undefined);
-    setToolFibonacciCircleOverlay(undefined);
-    setToolFibonacciRetracementOverlay(undefined);
-    setToolFibonacciExtensionOverlay(undefined);
-    setToolFibonacciSpeedArcsOverlay(undefined);
+    const selectedVariant = selectedToolFibonacciVariantRef.current;
+    const hasToolSelectedOverlay =
+      selectedVariant === "channel"
+        ? Boolean(toolFibonacciOverlayRef.current)
+        : selectedVariant === "circle"
+        ? Boolean(toolFibonacciCircleOverlayRef.current)
+        : selectedVariant === "retracement"
+        ? Boolean(toolFibonacciRetracementOverlayRef.current)
+        : selectedVariant === "extension"
+        ? Boolean(toolFibonacciExtensionOverlayRef.current)
+        : selectedVariant === "speed-arcs"
+        ? Boolean(toolFibonacciSpeedArcsOverlayRef.current)
+        : false;
+    if (!hasToolSelectedOverlay) onFibonacciDelete?.();
+    if (selectedVariant === "channel") setToolFibonacciOverlay(undefined);
+    else if (selectedVariant === "circle") setToolFibonacciCircleOverlay(undefined);
+    else if (selectedVariant === "retracement") setToolFibonacciRetracementOverlay(undefined);
+    else if (selectedVariant === "extension") setToolFibonacciExtensionOverlay(undefined);
+    else if (selectedVariant === "speed-arcs") setToolFibonacciSpeedArcsOverlay(undefined);
     setSelectedToolFibonacci(false);
+    setSelectedToolFibonacciVariant(null);
     setPendingDrawingStart(null);
     setPendingDrawingHover(null);
   }, [onFibonacciDelete]);
@@ -2500,6 +2531,7 @@ export function BitcoinChart({
                 setToolFibonacciOverlay(nextChannelOverlay);
               }
               setSelectedToolFibonacci(true);
+              setSelectedToolFibonacciVariant(fibVariant);
               setSelectedDrawingId(null);
               pendingDrawingStartRef.current = null;
               setPendingDrawingStart(null);
@@ -2592,11 +2624,18 @@ export function BitcoinChart({
         (hasToolSpeedArcsOverlay && hitTestFibonacciSpeedArcsOverlay(x, y))
       ) {
         setSelectedToolFibonacci(true);
+        if (hasToolChannelOverlay && hitTestFibonacciChannelOverlay(x, y)) setSelectedToolFibonacciVariant("channel");
+        else if (hasToolCircleOverlay && hitTestFibonacciOverlay(x, y)) setSelectedToolFibonacciVariant("circle");
+        else if (hasToolRetracementOverlay && hitTestFibonacciRetracementOverlay(x, y))
+          setSelectedToolFibonacciVariant("retracement");
+        else if (hasToolExtensionOverlay && hitTestFibonacciExtensionOverlay(x, y)) setSelectedToolFibonacciVariant("extension");
+        else if (hasToolSpeedArcsOverlay && hitTestFibonacciSpeedArcsOverlay(x, y)) setSelectedToolFibonacciVariant("speed-arcs");
         setSelectedDrawingId(null);
         return;
       }
       if (selectedToolFibonacciRef.current) {
         setSelectedToolFibonacci(false);
+        setSelectedToolFibonacciVariant(null);
       }
 
       if (
@@ -2608,6 +2647,11 @@ export function BitcoinChart({
           hitTestFibonacciSpeedArcsOverlay(x, y))
       ) {
         setSelectedToolFibonacci(true);
+        if (hitTestFibonacciOverlay(x, y)) setSelectedToolFibonacciVariant("circle");
+        else if (hitTestFibonacciChannelOverlay(x, y)) setSelectedToolFibonacciVariant("channel");
+        else if (hitTestFibonacciRetracementOverlay(x, y)) setSelectedToolFibonacciVariant("retracement");
+        else if (hitTestFibonacciExtensionOverlay(x, y)) setSelectedToolFibonacciVariant("extension");
+        else if (hitTestFibonacciSpeedArcsOverlay(x, y)) setSelectedToolFibonacciVariant("speed-arcs");
         setSelectedDrawingId(null);
         onFibonacciOverlayClickRef.current?.();
         return;
@@ -2617,6 +2661,7 @@ export function BitcoinChart({
       if (drawingHit) {
         setSelectedDrawingId(drawingHit.id);
         setSelectedToolFibonacci(false);
+        setSelectedToolFibonacciVariant(null);
         return;
       }
       if (selectedDrawingIdRef.current) {
@@ -2658,6 +2703,7 @@ export function BitcoinChart({
       if (drawingHit) {
         setSelectedDrawingId(drawingHit.id);
         setSelectedToolFibonacci(false);
+        setSelectedToolFibonacciVariant(null);
         if (drawingHit.target === "start" || drawingHit.target === "end") {
           fibDragTargetRef.current = drawingHit.target === "start" ? "drawing-start" : "drawing-end";
           drawingDragIdRef.current = drawingHit.id;
@@ -2719,30 +2765,38 @@ export function BitcoinChart({
         !speedArcsHit
       ) {
         if (selectedDrawingIdRef.current) setSelectedDrawingId(null);
-        if (selectedToolFibonacciRef.current) setSelectedToolFibonacci(false);
+        if (selectedToolFibonacciRef.current) {
+          setSelectedToolFibonacci(false);
+          setSelectedToolFibonacciVariant(null);
+        }
         return;
       }
 
       if (fibTarget) {
         setSelectedToolFibonacci(true);
+        setSelectedToolFibonacciVariant("circle");
         setSelectedDrawingId(null);
         fibDragTargetRef.current = fibTarget;
       } else if (channelTarget) {
         setSelectedToolFibonacci(true);
+        setSelectedToolFibonacciVariant("channel");
         setSelectedDrawingId(null);
         fibDragTargetRef.current =
           channelTarget === "a" ? "channel-a" : channelTarget === "b" ? "channel-b" : "channel-c";
       } else if (retracementTarget) {
         setSelectedToolFibonacci(true);
+        setSelectedToolFibonacciVariant("retracement");
         setSelectedDrawingId(null);
         fibDragTargetRef.current = retracementTarget === "a" ? "retracement-a" : "retracement-b";
       } else if (extensionTarget) {
         setSelectedToolFibonacci(true);
+        setSelectedToolFibonacciVariant("extension");
         setSelectedDrawingId(null);
         fibDragTargetRef.current =
           extensionTarget === "a" ? "extension-a" : extensionTarget === "b" ? "extension-b" : "extension-c";
       } else if (speedArcsTarget) {
         setSelectedToolFibonacci(true);
+        setSelectedToolFibonacciVariant("speed-arcs");
         setSelectedDrawingId(null);
         fibDragTargetRef.current = speedArcsTarget === "start" ? "arcs-start" : "arcs-end";
       } else if (channelHit) {
@@ -2764,6 +2818,7 @@ export function BitcoinChart({
           grabPrice: point.price,
         };
         setSelectedToolFibonacci(true);
+        setSelectedToolFibonacciVariant("channel");
         setSelectedDrawingId(null);
         fibDragTargetRef.current = "channel-move";
       } else if (fibHit) {
@@ -2782,6 +2837,7 @@ export function BitcoinChart({
           grabPrice: point.price,
         };
         setSelectedToolFibonacci(true);
+        setSelectedToolFibonacciVariant("circle");
         setSelectedDrawingId(null);
         fibDragTargetRef.current = "circle-move";
       } else if (retracementHit) {
@@ -2800,6 +2856,7 @@ export function BitcoinChart({
           grabPrice: point.price,
         };
         setSelectedToolFibonacci(true);
+        setSelectedToolFibonacciVariant("retracement");
         setSelectedDrawingId(null);
         fibDragTargetRef.current = "retracement-move";
       } else if (extensionHit) {
@@ -2821,6 +2878,7 @@ export function BitcoinChart({
           grabPrice: point.price,
         };
         setSelectedToolFibonacci(true);
+        setSelectedToolFibonacciVariant("extension");
         setSelectedDrawingId(null);
         fibDragTargetRef.current = "extension-move";
       } else if (speedArcsHit) {
@@ -2839,6 +2897,7 @@ export function BitcoinChart({
           grabPrice: point.price,
         };
         setSelectedToolFibonacci(true);
+        setSelectedToolFibonacciVariant("speed-arcs");
         setSelectedDrawingId(null);
         fibDragTargetRef.current = "arcs-move";
       }
@@ -3395,6 +3454,8 @@ export function BitcoinChart({
     pendingDrawingStart,
     requestFibonacciSync,
     selectedDrawingId,
+    selectedToolFibonacci,
+    selectedToolFibonacciVariant,
     toolFibonacciOverlay,
     toolFibonacciCircleOverlay,
     toolFibonacciRetracementOverlay,
