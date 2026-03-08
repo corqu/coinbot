@@ -19,11 +19,6 @@ from app.strategy.basic_startegy.fibonacci.fibonacci_speed_resistance_arcs impor
     fibonacci_speed_resistance_arc_bands_at,
     fibonacci_speed_resistance_arcs_signal,
 )
-from app.strategy.basic_startegy.fibonacci.fibonacci_speed_resistance_fan import (
-    FibonacciFanRay,
-    fibonacci_speed_resistance_fan_rays_at,
-    fibonacci_speed_resistance_fan_signal,
-)
 from app.strategy.basic_startegy.fibonacci.fibonacci_spiral import (
     FibonacciSpiralPoint,
     fibonacci_spiral_point,
@@ -58,9 +53,6 @@ __all__ = [
     "TrendFibonacciExtensionLevels",
     "trend_fibonacci_extension_levels",
     "trend_fibonacci_extension_signal",
-    "FibonacciFanRay",
-    "fibonacci_speed_resistance_fan_rays_at",
-    "fibonacci_speed_resistance_fan_signal",
     "FibonacciTimeZones",
     "fibonacci_time_zones",
     "fibonacci_time_zones_signal",

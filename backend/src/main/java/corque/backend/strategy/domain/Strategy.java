@@ -28,8 +28,14 @@ public class Strategy {
     @Column(nullable = false, length = 120)
     private String name;
 
+    @Column(length = 120)
+    private String alias;
+
     @Column(nullable = false, length = 255)
     private String source;
+
+    @Column(name = "parent_id")
+    private Long parentId;
 
     @Lob
     @Column(name = "parameter_schema_json", columnDefinition = "TEXT")
@@ -45,22 +51,29 @@ public class Strategy {
     public Strategy(
             String code,
             String name,
+            String alias,
             String source,
+            Long parentId,
             String parameterSchemaJson,
             Boolean isActive,
             String version
     ) {
         this.code = code;
         this.name = name;
+        this.alias = (alias == null || alias.isBlank()) ? name : alias;
         this.source = source;
+        this.parentId = parentId;
         this.parameterSchemaJson = parameterSchemaJson;
         this.isActive = isActive != null && isActive;
         this.version = (version == null || version.isBlank()) ? "v1" : version;
     }
 
-    public void updateInfo(String name, String source, String parameterSchemaJson, String version) {
+    public void updateInfo(String name, String alias, String source, String parameterSchemaJson, String version) {
         if (name != null && !name.isBlank()) {
             this.name = name;
+        }
+        if (alias != null && !alias.isBlank()) {
+            this.alias = alias;
         }
         if (source != null && !source.isBlank()) {
             this.source = source;

@@ -25,6 +25,7 @@ Thumbs.db
 
 # cache
 .cache/
+.vite/
 .eslintcache
 *.tsbuildinfo
 coverage/

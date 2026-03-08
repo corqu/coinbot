@@ -5,16 +5,18 @@ from app.strategy.basic_startegy.fibonacci.common import normalize_anchor
 from app.strategy.basic_startegy.fibonacci.fibonacci_channel import fibonacci_channel_bands_at, fibonacci_channel_signal
 
 
-def snapshot(bars: list[dict], start: dict, end: dict, ratios: list[float] | None = None) -> dict | None:
+def snapshot(bars: list[dict], a: dict, b: dict, c: dict, ratios: list[float] | None = None) -> dict | None:
     if not bars:
         return None
-    a = normalize_anchor(start)
-    b = normalize_anchor(end)
-    bands = fibonacci_channel_bands_at(start=a, end=b, x_index=len(bars) - 1, ratios=ratios)
+    p1 = normalize_anchor(a)
+    p2 = normalize_anchor(b)
+    p3 = normalize_anchor(c)
+    bands = fibonacci_channel_bands_at(a=p1, b=p2, c=p3, x_index=len(bars) - 1, ratios=ratios)
     return {
         "x_index": len(bars) - 1,
-        "start": asdict(a),
-        "end": asdict(b),
+        "a": asdict(p1),
+        "b": asdict(p2),
+        "c": asdict(p3),
         "bands": [
             {"ratio": band.ratio, "upper": band.upper, "lower": band.lower, "center": band.center} for band in bands
         ],
@@ -23,18 +25,18 @@ def snapshot(bars: list[dict], start: dict, end: dict, ratios: list[float] | Non
 
 
 def generate_signal(
-    bars: list[dict], start: dict, end: dict, ratios: list[float] | None = None, breakout_buffer: float = 0.0
+    bars: list[dict], a: dict, b: dict, c: dict, ratios: list[float] | None = None, breakout_buffer: float = 0.0
 ) -> str:
-    return fibonacci_channel_signal(bars=bars, start=start, end=end, ratios=ratios, breakout_buffer=breakout_buffer)
+    return fibonacci_channel_signal(bars=bars, a=a, b=b, c=c, ratios=ratios, breakout_buffer=breakout_buffer)
 
 
 def run_backtest(
-    bars: list[dict], start: dict, end: dict, qty: float, ratios: list[float] | None = None, breakout_buffer: float = 0.0
+    bars: list[dict], a: dict, b: dict, c: dict, qty: float, ratios: list[float] | None = None, breakout_buffer: float = 0.0
 ) -> dict:
     return run_signal_backtest(
         bars=bars,
         qty=qty,
         signal_func=generate_signal,
-        signal_kwargs={"start": start, "end": end, "ratios": ratios, "breakout_buffer": breakout_buffer},
+        signal_kwargs={"a": a, "b": b, "c": c, "ratios": ratios, "breakout_buffer": breakout_buffer},
     )
 

@@ -30,6 +30,11 @@ public class StrategyController {
         return ResponseEntity.ok(ApiResponse.success("Active strategies fetched.", strategyService.getActiveStrategies()));
     }
 
+    @GetMapping("/catalog")
+    public ResponseEntity<ApiResponse<List<StrategySummaryResponse>>> getStrategyCatalog() {
+        return ResponseEntity.ok(ApiResponse.success("Strategy catalog fetched.", strategyService.getStrategyCatalog()));
+    }
+
     @GetMapping("/groups/{strategyGroupId}")
     public ResponseEntity<ApiResponse<StrategyGroupResponse>> getStrategyGroup(
             @PathVariable Long strategyGroupId,

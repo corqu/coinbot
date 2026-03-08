@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from app.strategy.basic_startegy.fibonacci.common import FibAnchor, normalize_anchor
+from app.strategy.basic_startegy.fibonacci.common import DEFAULT_TREND_FIBONACCI_TIME_RATIOS, FibAnchor, normalize_anchor
 
 
 @dataclass(frozen=True)
@@ -18,7 +18,7 @@ def trend_fibonacci_time_levels(
     p1 = normalize_anchor(a)
     p2 = normalize_anchor(b)
     p3 = normalize_anchor(c)
-    fib = ratios or [0.618, 1.0, 1.618, 2.618]
+    fib = ratios or DEFAULT_TREND_FIBONACCI_TIME_RATIOS
     base = abs(p2.index - p1.index)
     if base == 0:
         base = 1

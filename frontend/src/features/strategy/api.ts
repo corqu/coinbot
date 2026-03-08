@@ -1,4 +1,5 @@
 import { apiGet, apiPatch, apiPost } from "@/lib/api/client";
+import { mockActiveStrategies } from "@/features/strategy/mockActiveStrategies";
 import type {
   StrategyGroup,
   StrategyGroupActiveUpdatePayload,
@@ -9,7 +10,11 @@ import type {
 } from "@/features/strategy/types";
 
 export function getActiveStrategies(): Promise<StrategySummary[]> {
-  return apiGet<StrategySummary[]>("/api/strategies/active");
+  return apiGet<StrategySummary[]>("/api/strategies/active").catch(() => mockActiveStrategies);
+}
+
+export function getStrategyCatalog(): Promise<StrategySummary[]> {
+  return apiGet<StrategySummary[]>("/api/strategies/catalog");
 }
 
 export function getStrategyGroup(strategyGroupId: number): Promise<StrategyGroup> {

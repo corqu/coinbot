@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 from math import sqrt
 
-from app.strategy.basic_startegy.fibonacci.common import FibAnchor, normalize_anchor
+from app.strategy.basic_startegy.fibonacci.common import (
+    DEFAULT_SPEED_RESISTANCE_ARCS_RATIOS,
+    FibAnchor,
+    normalize_anchor,
+)
 
 
 @dataclass(frozen=True)
@@ -19,18 +23,21 @@ def fibonacci_speed_resistance_arc_bands_at(
 ) -> list[FibonacciArcBand]:
     a = normalize_anchor(start)
     b = normalize_anchor(end)
-    fib = ratios or [0.382, 0.5, 0.618, 1.0]
-    base = abs(b.price - a.price)
-    dx = abs(x_index - b.index)
+    fib = ratios or DEFAULT_SPEED_RESISTANCE_ARCS_RATIOS
+    # Treat start as the circle center and end as a point on the base radius.
+    base_dx = float(b.index - a.index)
+    base_dy = float(b.price - a.price)
+    base_radius = sqrt((base_dx**2) + (base_dy**2))
+    dx = abs(float(x_index - a.index))
     bands: list[FibonacciArcBand] = []
     for ratio in fib:
         if ratio <= 0:
             continue
-        radius = base * ratio
+        radius = base_radius * ratio
         if dx > radius:
             continue
         y_delta = sqrt(max((radius**2) - (dx**2), 0.0))
-        bands.append(FibonacciArcBand(ratio=ratio, upper=b.price + y_delta, lower=b.price - y_delta))
+        bands.append(FibonacciArcBand(ratio=ratio, upper=a.price + y_delta, lower=a.price - y_delta))
     return bands
 
 
